@@ -1,6 +1,8 @@
 # .husky/commit-msg
-# This file runs after you type your commit message but BEFORE the commit is saved
-# It validates your message format
-
-# $1 is the file path containing your commit message
-pnpx --no -- commitlint --edit $1
+# Location: .husky/commit-msg
+#
+# WHY pnpm exec instead of npx?
+# We chose pnpm as our package manager. "pnpm exec" runs a binary
+# that is already installed in node_modules — no downloading needed.
+# "npx --no --" was npm-specific syntax. pnpm exec is the pnpm equivalent.
+pnpm exec commitlint --edit $1

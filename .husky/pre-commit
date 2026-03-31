@@ -5,4 +5,4 @@
 # Run lint-staged: only lints files that are staged (changed)
 # WHY only staged files? Running lint on the entire project would be slow (30+ seconds)
 # lint-staged is fast because it only checks what you actually changed
-npx lint-staged
+pnpx lint-staged
