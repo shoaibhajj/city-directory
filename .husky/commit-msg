@@ -1,0 +1,6 @@
+# .husky/commit-msg
+# This file runs after you type your commit message but BEFORE the commit is saved
+# It validates your message format
+
+# $1 is the file path containing your commit message
+pnpx --no -- commitlint --edit $1

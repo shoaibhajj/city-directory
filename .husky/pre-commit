@@ -1,0 +1,8 @@
+# .husky/pre-commit
+# This file runs BEFORE every git commit
+# If any command here exits with non-zero code, the commit is BLOCKED
+
+# Run lint-staged: only lints files that are staged (changed)
+# WHY only staged files? Running lint on the entire project would be slow (30+ seconds)
+# lint-staged is fast because it only checks what you actually changed
+npx lint-staged

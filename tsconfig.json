@@ -1,34 +1,63 @@
+// tsconfig.json
+// Location: root of project
 {
   "compilerOptions": {
+    // Target modern JavaScript (Node.js 18+ understands ES2017+)
     "target": "ES2017",
+
+    // Which built-in type definitions to include
     "lib": ["dom", "dom.iterable", "esnext"],
+
+    // Allow importing .js files without the .js extension
     "allowJs": true,
+
+    // Skip type-checking of node_modules (too slow, and they should have their own types)
     "skipLibCheck": true,
+
+    // === STRICT MODE: All of these are enabled by "strict": true ===
+    // "strict": true enables: strictNullChecks, strictFunctionTypes,
+    // strictBindCallApply, strictPropertyInitialization,
+    // noImplicitAny, noImplicitThis, alwaysStrict
     "strict": true,
+
+    // Don't emit compiled JS files (Next.js handles compilation)
     "noEmit": true,
+
+    // Use modern module resolution (required for Next.js ESM)
     "esModuleInterop": true,
+
+    // Module system: ESNext (supports dynamic imports)
     "module": "esnext",
+
+    // How to resolve module paths
     "moduleResolution": "bundler",
+
+    // Allow importing JSON files as modules
     "resolveJsonModule": true,
+
+    // Each file is treated as an isolated module (Next.js requirement)
     "isolatedModules": true,
-    "jsx": "react-jsx",
+
+    // Allow importing from JSX files without explicit React import
+    "jsx": "preserve",
+
+    // Enable incremental compilation (faster rebuilds)
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+
+    // Additional strict rules beyond "strict": true
+    // These catch real bugs that "strict": true misses:
+    "noUnusedLocals": true, // Error if you declare a variable and never use it
+    "noUnusedParameters": true, // Error if a function parameter is never used
+    "noFallthroughCasesInSwitch": true, // Error if switch case falls through without break/return
+
+    // Path aliases — @/ maps to src/
     "paths": {
-      "@/*": ["./*"]
-    }
+      "@/*": ["./src/*"]
+    },
+
+    // Where to find type definitions
+    "baseUrl": "."
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
-  ],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }
