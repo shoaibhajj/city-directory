@@ -1,0 +1,46 @@
+// prisma/schema.prisma
+// Location: prisma/schema.prisma
+//
+// This is your DATABASE BLUEPRINT.
+// Prisma reads this file and:
+//   1. Generates TypeScript types for all your models
+//   2. Creates SQL migration files when you change the schema
+//   3. Gives you a type-safe query client
+//
+// GOLDEN RULE: The schema is the SINGLE SOURCE OF TRUTH for your database structure.
+// Never manually alter your database tables — always change the schema and run migrations.
+// This way, the schema always matches what's in the DB.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  
+  // Standard URL — used for all queries
+  url = env("DATABASE_URL")
+  
+  // Direct URL — bypasses connection poolers (required for migrations on Neon/Supabase)
+  // For local Docker, this is the same URL. For Neon, it's a different connection string.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// INITIAL SCHEMA: Just a health-check model to verify Prisma works.
+// All real models will be added in Phase 2.
+// 
+// WHY add a placeholder model now?
+// We need at least one model to run "prisma migrate dev" and verify
+// the database connection works before we build on top of it.
+// ─────────────────────────────────────────────────────────────────────
+
+// This model will be REPLACED in Phase 2 with the full User model.
+// It is only here to test the Prisma → PostgreSQL connection.
+model HealthCheck {
+  id        String   @id @default(cuid())
+  message   String   @default("prisma_connected")
+  createdAt DateTime @default(now())
+  
+  @@map("health_check") // The actual SQL table name (snake_case by convention)
+}

@@ -1,0 +1,99 @@
+# .github/workflows/ci.yml
+#
+# PURPOSE: Runs on every Pull Request targeting main.
+# Blocks merging if lint, type-check, or build fails.
+#
+# WHY pnpm/action-setup@v4?
+# We use pnpm locally. Using npm in CI would install different versions
+# than what's in pnpm-lock.yaml → "works on my machine" bugs.
+# Always mirror local tooling in CI. [web:173]
+#
+# WHY --frozen-lockfile?
+# Fails immediately if pnpm-lock.yaml is out of sync with package.json.
+# Without it, CI silently installs different package versions than local dev.
+#
+# WHY fake env vars in the build step?
+# src/env.ts runs Zod validation at build time (process.exit(1) on failure).
+# CI has no .env.local file, so we must provide all required variables here.
+# These are NOT real secrets — they are shape-valid placeholders so Zod
+# doesn't crash the build. Real secrets live in .env.local (local dev)
+# and Vercel dashboard (production).
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Lint · Type-Check · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install pnpm BEFORE setup-node so node can cache the pnpm store
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10  # Must match your local pnpm version (check with: pnpm --version)
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'  # Caches ~/.pnpm-store between runs (~2min saved per run)
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        # --frozen-lockfile → fail if pnpm-lock.yaml is out of sync with package.json
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Run TypeScript type-check
+        run: pnpm type-check
+
+      - name: Run production build
+        run: pnpm build
+        env:
+          # ─── Why these fake values? ─────────────────────────────────────────
+          # src/env.ts calls envSchema.safeParse(process.env) at build time.
+          # Each value below matches the Zod schema in your env.ts exactly:
+          #
+          # DATABASE_URL          → z.string().url()        needs postgresql:// URL
+          # AUTH_SECRET           → z.string().min(32)      needs ≥ 32 characters
+          # AUTH_URL              → z.string().url()        needs http(s):// URL
+          # GOOGLE_CLIENT_ID/SECRET → z.string().min(1)     any non-empty string
+          # UPSTASH_REDIS_REST_URL  → z.string().url()      needs https:// URL
+          # RESEND_FROM_EMAIL     → z.string().email()      needs valid email shape
+          # NEXT_PUBLIC_APP_URL   → z.string().url()        needs http(s):// URL
+          #
+          # Optional fields (SENTRY_DSN, POSTHOG_KEY) are not needed here —
+          # your env.ts marks them .optional() so they pass when absent.
+          # NEXT_PUBLIC_POSTHOG_HOST has .default() so it also passes when absent.
+          # NODE_ENV has .default("development") so it passes when absent.
+          # ────────────────────────────────────────────────────────────────────
+
+          DATABASE_URL: "postgresql://ci_user:ci_pass@localhost:5432/ci_db"
+          DIRECT_DATABASE_URL: "postgresql://ci_user:ci_pass@localhost:5432/ci_db"
+
+          AUTH_SECRET: "ci-placeholder-secret-exactly-32-chars-long-ok"
+          AUTH_URL: "http://localhost:3000"
+
+          GOOGLE_CLIENT_ID: "ci-google-client-id"
+          GOOGLE_CLIENT_SECRET: "ci-google-client-secret"
+
+          UPSTASH_REDIS_REST_URL: "https://ci-placeholder.upstash.io"
+          UPSTASH_REDIS_REST_TOKEN: "ci-upstash-token"
+
+          CLOUDINARY_CLOUD_NAME: "ci-cloud"
+          CLOUDINARY_API_KEY: "ci-api-key"
+          CLOUDINARY_API_SECRET: "ci-api-secret"
+
+          RESEND_API_KEY: "re_ci_placeholder_key"
+          RESEND_FROM_EMAIL: "noreply@ci-placeholder.com"
+
+          NEXT_PUBLIC_APP_URL: "http://localhost:3000"

@@ -1,0 +1,18 @@
+// .vscode/settings.json
+// Location: .vscode/settings.json  (create .vscode folder at project root if missing)
+//
+// This file stores VS Code settings specific to THIS project.
+// It IS committed to Git so all team members get the same editor behavior.
+{
+  // Tell the Prisma VS Code extension to use Prisma 6 language server
+  // WHY: The extension auto-updated to Prisma 7 validation but our
+  // project deliberately uses Prisma 6. Without this, the extension
+  // shows false "url not supported" errors in schema.prisma.
+  "prisma.prismaVersion": "6",
+
+  // Format prisma files on save using the Prisma extension formatter
+  "[prisma]": {
+    "editor.defaultFormatter": "Prisma.prisma",
+    "editor.formatOnSave": true
+  }
+}

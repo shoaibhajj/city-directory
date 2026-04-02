@@ -1,0 +1,41 @@
+{
+  "common": {
+    "appName": "City Directory",
+    "search": "Search",
+    "filter": "Filter",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "notFound": "Page not found",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next"
+  },
+  "nav": {
+    "home": "Home",
+    "directory": "Directory",
+    "signIn": "Sign In",
+    "signUp": "Create Account",
+    "dashboard": "Dashboard",
+    "signOut": "Sign Out"
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "signUp": "Create New Account",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "resetPassword": "Reset Password",
+    "verifyEmail": "Verify Email"
+  },
+  "listings": {
+    "verified": "Verified",
+    "unverified": "Unverified",
+    "draft": "Draft",
+    "active": "Active",
+    "suspended": "Suspended"
+  }
+}

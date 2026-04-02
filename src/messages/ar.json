@@ -1,0 +1,41 @@
+{
+  "common": {
+    "appName": "دليل المدينة",
+    "search": "بحث",
+    "filter": "تصفية",
+    "loading": "جاري التحميل...",
+    "error": "حدث خطأ",
+    "notFound": "الصفحة غير موجودة",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "confirm": "تأكيد",
+    "back": "رجوع",
+    "next": "التالي"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "directory": "الدليل",
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب",
+    "dashboard": "لوحة التحكم",
+    "signOut": "تسجيل الخروج"
+  },
+  "auth": {
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب جديد",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "forgotPassword": "نسيت كلمة المرور؟",
+    "resetPassword": "إعادة تعيين كلمة المرور",
+    "verifyEmail": "التحقق من البريد الإلكتروني"
+  },
+  "listings": {
+    "verified": "موثّق",
+    "unverified": "غير موثّق",
+    "draft": "مسودة",
+    "active": "نشط",
+    "suspended": "موقوف"
+  }
+}
