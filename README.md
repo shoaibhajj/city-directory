@@ -2674,6 +2674,896 @@ pnpm add -D @types/bcryptjs
 ---
 
 _This README is a living document. Update it after every significant decision, problem, or phase completion._
+````
+
+## 5. Phase 0 — Complete Implementation Guide
+
+### Goal
+
+Any developer clones this repo, runs 3 commands, and is contributing within 20 minutes.
+
+### Prerequisites
+
+```bash
+node --version    # Must be >= 20.0.0
+pnpm --version    # Must be >= 9.0.0
+git --version     # Any recent version
+docker --version  # For local PostgreSQL + Redis
+```
+
+Install pnpm if missing:
+
+```bash
+npm install -g pnpm
+```
+
+### Setup Steps (In Order)
+
+#### Step 1: Clone the repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/city-directory.git
+cd city-directory
+```
+
+#### Step 2: Create the project (already done — for reference)
+
+```bash
+# This command was used to initialize the project
+pnpm create next-app@latest . --yes
+# --yes uses defaults: TypeScript, Tailwind, ESLint, App Router, Turbopack, @/* import alias
+```
+
+**What `--yes` installed:**
+
+- Next.js 16.2.1
+- React 19.2.4
+- Tailwind CSS 4.2.2 (v4 — NO config file needed)
+- TypeScript 5.9.3
+- ESLint 9.x (flat config format — NOT .eslintrc)
+
+#### Step 3: Add src/ folder structure
+
+```bash
+mkdir src
+# Windows PowerShell:
+Move-Item app src/app
+# Mac/Linux:
+mv app src/app
+```
+
+**WHY src/?** Root stays clean — only config files at root, all application code in `src/`. With 14+ config files at root already, mixing in application code creates confusion.
+
+#### Step 4: Initialize shadcn/ui
+
+```bash
+npx shadcn@latest init
+# Select: Radix (mature, battle-tested over Base UI)
+# Select: Nova preset (compact + clean — good for directory + admin)
+# Select: Slate base color
+# Select: Yes to CSS variables
+```
+
+Then move shadcn files into src/ (shadcn defaults to root):
+
+```bash
+mv components src/components
+mv lib src/lib
+mv hooks src/hooks
+```
+
+Update `components.json` aliases to point to src/:
+
+```json
+{
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  }
+}
+```
+
+#### Step 5: Configure TypeScript (strict mode)
+
+Add to `tsconfig.json` compilerOptions:
+
+```json
+{
+  "noUnusedLocals": true,
+  "noUnusedParameters": true,
+  "noFallthroughCasesInSwitch": true
+}
+```
+
+Add scripts to `package.json`:
+
+```json
+{
+  "type-check": "tsc --noEmit",
+  "format": "prettier --write .",
+  "format:check": "prettier --check ."
+}
+```
+
+#### Step 6: Configure ESLint 9 + Prettier
+
+**CRITICAL:** ESLint 9 uses flat config (`eslint.config.mjs`) — NOT `.eslintrc.json`. These are incompatible.
+
+Install:
+
+```bash
+pnpm add -D prettier eslint-config-prettier @eslint/compat typescript-eslint
+```
+
+Replace `eslint.config.mjs` with flat config using native next-intl support (see file in repo).
+
+#### Step 7: Configure Husky + Commitlint + lint-staged
+
+```bash
+pnpm add -D husky lint-staged @commitlint/cli @commitlint/config-conventional
+npx husky init
+```
+
+**CRITICAL for pnpm:** Use `pnpm exec` not `npx` in hook files.
+
+`.husky/pre-commit`:
+
+```bash
+npx lint-staged
+```
+
+`.husky/commit-msg`:
+
+```bash
+# CORRECT for pnpm:
+pnpm exec commitlint --edit $1
+# WRONG (causes "Unknown option: 'no'" error):
+# npx --no -- commitlint --edit $1
+```
+
+**Conventional Commits format:** `type(scope): description`
+
+- `feat(auth): add Google OAuth` ✅
+- `fix(listings): correct slug generation` ✅
+- `stuff i did` ❌ (BLOCKED by commitlint)
+
+#### Step 8: Configure Docker
+
+```bash
+# Start local PostgreSQL + Redis
+docker compose up -d
+
+# Verify both containers healthy
+docker compose ps
+```
+
+#### Step 9: Configure Environment Variables
+
+Three separate files — each serves a different reader:
+
+| File           | Read By                | Contains                               | Git?   |
+| -------------- | ---------------------- | -------------------------------------- | ------ |
+| `.env.example` | Humans (documentation) | Fake placeholder values                | ✅ YES |
+| `.env`         | Prisma CLI             | DATABASE_URL, DIRECT_DATABASE_URL only | ❌ NO  |
+| `.env.local`   | Next.js app            | All other variables                    | ❌ NO  |
+
+**WHY does Prisma need its own `.env` file?**
+Prisma CLI runs as a separate process outside Next.js. It cannot read `.env.local`. It reads `.env` (a standard dotenv convention). Next.js also reads `.env` but `.env.local` takes precedence.
+
+#### Step 10: Environment Variable Validation
+
+`src/env.ts` validates ALL environment variables at startup using Zod.
+
+**Fail Fast principle:** The application refuses to start if any required variable is missing or malformed. You find out in CI, not after users are affected.
+
+#### Step 11: Prisma Setup
+
+```bash
+# Always use pnpm exec — never pnpx
+pnpm exec prisma init --datasource-provider postgresql
+pnpm exec prisma migrate dev --name init_health_check
+pnpm exec prisma studio  # Visual DB browser at localhost:5555
+```
+
+**Singleton pattern in `src/lib/prisma.ts`:**
+Without singleton: Next.js hot-reload creates new PrismaClient on each save → 50+ database connections → PostgreSQL crashes.
+With singleton: globalThis persists across hot-reloads → one connection pool → stable.
+
+#### Step 12: Redis Client
+
+`src/lib/redis.ts` — Upstash HTTP-based Redis client.
+
+Cache key constants prevent "string scattered in 5 files" bugs.
+Cache TTL constants encode business rules explicitly.
+
+#### Step 13: Infrastructure Utilities
+
+- `src/lib/constants.ts` — all magic numbers in one place
+- `src/lib/api-response.ts` — standard `{ success, data, error, meta }` shape for ALL API responses
+- `src/lib/error-codes.ts` — machine-readable error codes prevent string comparisons across codebase
+
+**WHY a standard API response shape?**
+Mobile apps can write ONE response handler for all endpoints. Frontend code checks `response.success` uniformly. Errors always have a machine-readable `code` and human-readable `message`.
+
+#### Step 14: i18n Setup (next-intl)
+
+**Folder structure for locale routing:**
+
+```
+src/app/
+├── [locale]/           ← All pages live here
+│   ├── layout.tsx      ← Sets html lang, dir (rtl/ltr), loads fonts, provides i18n context
+│   └── page.tsx        ← Home page
+└── layout.tsx          ← Minimal root layout (Next.js requirement)
+```
+
+**CRITICAL — root layout.tsx MUST have html and body tags:**
+
+```tsx
+// src/app/layout.tsx — MUST have html and body
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html suppressHydrationWarning>
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+**[locale]/layout.tsx does NOT add another html/body — it wraps children only.**
+
+**RTL/LTR direction:**
+
+```tsx
+const direction = locale === "ar" ? "rtl" : "ltr";
+// Applied to html element in [locale]/layout.tsx via suppressHydrationWarning
+```
+
+**Middleware (`src/middleware.ts`) handles:**
+
+- `localhost:3000` → redirects to `/ar/`
+- `localhost:3000/en/...` → serves English version
+- `localhost:3000/fr/...` → 404 (not in supported locales)
+
+### Phase 0 Done Criteria
+
+Run all three before committing:
+
+```bash
+pnpm dev          # localhost:3000 redirects to /ar/ ✅
+pnpm type-check   # 0 TypeScript errors ✅
+pnpm lint         # 0 ESLint errors ✅
+pnpm build        # Production build succeeds ✅
+```
+
+Test URLs:
+
+- `http://localhost:3000` → redirects to `/ar/`
+- `http://localhost:3000/ar` → Arabic home page
+- `http://localhost:3000/en` → English home page
+- `http://localhost:3000/fr` → 404
+
+---
+
+## 6. Folder Structure
+
+```
+city-directory/
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml          ← Runs on every PR: lint + type-check + build
+│       └── cd.yml          ← Runs on merge to main: deploy to Vercel
+│
+├── .husky/
+│   ├── pre-commit          ← Runs lint-staged before every commit
+│   └── commit-msg          ← Validates conventional commit format
+│
+├── docs/
+│   ├── RFC-001-architecture.md    ← Full architecture decision document
+│   └── decisions/
+│       ├── ADR-001-monolith.md    ← Why monolith over microservices
+│       ├── ADR-002-pg-trgm.md     ← Why trigram search for Arabic
+│       ├── ADR-003-auto-approve.md ← Why auto-approve listings
+│       └── ADR-004-pdf-rendering.md ← PDF library choice
+│
+├── prisma/
+│   ├── schema.prisma       ← Database blueprint — single source of truth
+│   ├── seed.ts             ← Seed data (cities, categories, admin user)
+│   └── migrations/         ← Auto-generated SQL migration files (committed to Git)
+│
+├── public/
+│   └── fonts/              ← Local font files (Cairo for PDF generation)
+│
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                    ← Root layout (html + body, minimal)
+│   │   ├── [locale]/
+│   │   │   ├── layout.tsx                ← Locale layout (lang, dir, fonts, i18n provider)
+│   │   │   ├── page.tsx                  ← Home page
+│   │   │   ├── (auth)/                   ← Route group: auth pages (no layout shared with app)
+│   │   │   │   ├── sign-in/page.tsx
+│   │   │   │   ├── sign-up/page.tsx
+│   │   │   │   ├── forgot-password/page.tsx
+│   │   │   │   ├── reset-password/page.tsx
+│   │   │   │   └── verify-email/page.tsx
+│   │   │   ├── (public)/                 ← Route group: public directory pages
+│   │   │   │   ├── [citySlug]/
+│   │   │   │   │   └── [categorySlug]/
+│   │   │   │   │       ├── page.tsx      ← Category listing page
+│   │   │   │   │       └── [businessSlug]/
+│   │   │   │   │           └── page.tsx  ← Business profile page
+│   │   │   │   └── search/page.tsx       ← Search results page
+│   │   │   ├── (dashboard)/              ← Route group: business owner dashboard
+│   │   │   │   └── dashboard/
+│   │   │   │       ├── page.tsx
+│   │   │   │       └── listings/
+│   │   │   │           └── [id]/page.tsx
+│   │   │   └── (admin)/                  ← Route group: admin panel
+│   │   │       └── admin/
+│   │   │           ├── page.tsx
+│   │   │           ├── listings/page.tsx
+│   │   │           └── users/page.tsx
+│   │   ├── api/
+│   │   │   └── v1/                       ← All API routes versioned under /v1
+│   │   │       ├── auth/[...nextauth]/route.ts
+│   │   │       ├── categories/route.ts
+│   │   │       ├── businesses/
+│   │   │       │   └── [id]/
+│   │   │       │       └── view/route.ts
+│   │   │       ├── search/suggest/route.ts
+│   │   │       └── health/route.ts
+│   │   └── sitemap.ts                    ← Auto-generated sitemap
+│   │
+│   ├── components/
+│   │   ├── ui/                           ← shadcn/ui primitive components
+│   │   └── shared/                       ← Our custom shared components
+│   │
+│   ├── features/                         ← Feature-based organization
+│   │   ├── auth/
+│   │   │   ├── actions.ts                ← Server Actions for auth
+│   │   │   ├── schemas.ts                ← Zod validation schemas
+│   │   │   └── utils.ts                  ← Password hashing, token generation
+│   │   ├── business/
+│   │   │   ├── actions.ts
+│   │   │   ├── queries.ts                ← Database read operations
+│   │   │   └── utils.ts                  ← Slug generation, state machine
+│   │   ├── categories/
+│   │   │   ├── actions.ts
+│   │   │   └── queries.ts
+│   │   ├── media/
+│   │   │   ├── actions.ts
+│   │   │   ├── cloudinary.ts
+│   │   │   ├── image-processor.ts
+│   │   │   └── validators.ts
+│   │   ├── notifications/
+│   │   │   ├── sender.ts
+│   │   │   └── templates/                ← React Email templates
+│   │   ├── pdf/
+│   │   │   ├── generator.ts
+│   │   │   ├── cache.ts
+│   │   │   └── templates/
+│   │   ├── admin/
+│   │   │   ├── actions.ts
+│   │   │   └── queries.ts
+│   │   └── platform/
+│   │       └── settings.ts               ← DB-backed settings with Redis cache
+│   │
+│   ├── hooks/                            ← React hooks
+│   │   └── useSearchFilters.ts           ← URL state management via nuqs
+│   │
+│   ├── i18n/
+│   │   ├── routing.ts                    ← Locale config (single source of truth)
+│   │   └── request.ts                    ← Server-side locale resolution
+│   │
+│   ├── lib/
+│   │   ├── prisma.ts                     ← Prisma singleton client
+│   │   ├── redis.ts                      ← Upstash Redis client + cache constants
+│   │   ├── auth.ts                       ← Auth.js v5 configuration (Phase 1)
+│   │   ├── audit.ts                      ← Audit log writer (Phase 2)
+│   │   ├── rate-limit.ts                 ← Rate limiting via Redis (Phase 1)
+│   │   ├── api-response.ts               ← Standard API response builders
+│   │   ├── error-codes.ts                ← Centralized error code constants
+│   │   └── constants.ts                  ← All magic numbers in one place
+│   │
+│   ├── messages/
+│   │   ├── ar.json                       ← Arabic translations (default)
+│   │   └── en.json                       ← English translations
+│   │
+│   ├── middleware.ts                     ← Edge middleware: locale routing + auth checks
+│   │
+│   ├── types/
+│   │   └── next-auth.d.ts                ← Augmented session types (Phase 1)
+│   │
+│   └── env.ts                            ← Zod environment variable validation
+│
+├── tests/
+│   ├── unit/                             ← Jest unit tests
+│   ├── integration/                      ← Jest + test DB integration tests
+│   └── e2e/                              ← Playwright end-to-end tests
+│
+├── .env                                  ← Prisma-only env vars (gitignored)
+├── .env.example                          ← Documented placeholders (committed)
+├── .env.local                            ← Next.js app env vars (gitignored)
+├── .eslintrc.mjs                         ← ESLint 9 flat config
+├── .gitignore
+├── .husky/
+├── .prettierrc
+├── .prettierignore
+├── commitlint.config.js
+├── components.json                       ← shadcn/ui configuration
+├── docker-compose.yml                    ← Local dev infrastructure
+├── next.config.ts                        ← Next.js + next-intl configuration
+├── package.json
+├── pnpm-lock.yaml                        ← Committed to Git (locks exact versions)
+├── postcss.config.mjs                    ← Tailwind v4 PostCSS config
+└── tsconfig.json
+```
+
+---
+
+## 7. Problems We Faced & How We Solved Them
+
+### Problem 1: `@next/eslint-plugin-next` Cannot Be Found
+
+**Error:**
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@next/eslint-plugin-next'
+```
+
+**Root cause:** `@next/eslint-plugin-next` is a sub-package inside `eslint-config-next` — it cannot be imported directly. My initial config tried to import it as a standalone package.
+
+**Solution:** Use `eslint-config-next`'s native flat config exports:
+
+```javascript
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+```
+
+**Lesson:** When a library gives `Cannot find package X`, first check if it's a sub-package that cannot be imported directly. Always check the official docs before community tutorials — official docs are updated with the package, tutorials go stale.
+
+---
+
+### Problem 2: ESLint Circular Structure JSON Error
+
+**Error:**
+
+```
+TypeError: Converting circular structure to JSON
+  property 'plugins' -> property 'react' closes the circle
+```
+
+**Root cause:** `FlatCompat` (the bridge between old ESLint config format and flat config) creates circular object references when converting the React plugin. `eslint-config-next` 16 ships its own React plugin which causes this when wrapped through FlatCompat.
+
+**Solution:** `eslint-config-next` 16 was rewritten to natively support flat config — no FlatCompat needed:
+
+```javascript
+import nextVitals from "eslint-config-next/core-web-vitals"; // Native flat config ✅
+```
+
+**Lesson:** The JavaScript ecosystem moves fast. When a library throws a confusing internal error, always check if a new version of the library has native support for the feature you're trying to use. The official docs are the first place to look.
+
+---
+
+### Problem 3: Husky commit-msg Hook Failing with `Unknown option: 'no'`
+
+**Error:**
+
+```
+ERROR  Unknown option: 'no'
+husky - commit-msg script failed (code 1)
+```
+
+**Root cause:** The commit-msg hook used `npx --no --` syntax which is npm-specific. We're using pnpm.
+
+**Solution:** Replace `npx --no -- commitlint` with `pnpm exec commitlint`:
+
+```bash
+# Wrong (npm syntax):
+npx --no -- commitlint --edit $1
+
+# Correct (pnpm syntax):
+pnpm exec commitlint --edit $1
+```
+
+**Lesson:** Package manager commands are not interchangeable. `npx` = npm. `pnpm exec` = pnpm. Always use the command appropriate for your chosen package manager.
+
+---
+
+### Problem 4: `pnpx prisma init` Downloaded Prisma 7 Instead of Our Installed v6
+
+**What happened:** Running `pnpx prisma init` downloaded Prisma 7.6.0 from the internet, ignoring our installed v6.
+
+**Root cause:** `pnpx` = "download and run from internet". `pnpm exec` = "run from local node_modules".
+
+**Solution:** Always use `pnpm exec prisma` for all Prisma commands:
+
+```bash
+# Wrong — downloads latest from internet:
+pnpx prisma init
+
+# Correct — uses installed version from node_modules:
+pnpm exec prisma init
+pnpm exec prisma migrate dev
+pnpm exec prisma studio
+```
+
+**Lesson:** After deliberately pinning a package version, always use `pnpm exec` to run its CLI. This is true for ALL CLI tools (prisma, drizzle-kit, etc.).
+
+---
+
+### Problem 5: VS Code Prisma Extension Showing v7 Errors on v6 Schema
+
+**Error (in VS Code, not terminal):**
+
+```
+The datasource property `url` is no longer supported in schema files.
+Move connection URLs for Migrate to `prisma.config.ts`
+```
+
+**Root cause:** The VS Code Prisma extension auto-updated to use the Prisma 7 language server for schema validation, while the installed CLI is still v6. Two separate systems at different versions.
+
+**Solution:** Add to `.vscode/settings.json`:
+
+```json
+{
+  "prisma.prismaVersion": "6"
+}
+```
+
+**Lesson:** The editor's language server and the installed CLI are different processes. Always trust `pnpm exec prisma validate` (the CLI) over VS Code red squiggles (the editor). The CLI is what actually runs your code.
+
+---
+
+### Problem 6: Prisma Cannot Find `DIRECT_DATABASE_URL`
+
+**Error:**
+
+```
+Error code: P1012
+error: Environment variable not found: DIRECT_DATABASE_URL.
+```
+
+**Root cause:** Prisma reads `.env`, not `.env.local`. The variable was in `.env.local` but not in `.env`.
+
+**Solution:** Create a separate `.env` file (gitignored) with only the database URLs:
+
+```bash
+# .env — read by Prisma CLI
+DATABASE_URL="postgresql://devuser:devpassword@localhost:5432/city_directory_dev"
+DIRECT_DATABASE_URL="postgresql://devuser:devpassword@localhost:5432/city_directory_dev"
+```
+
+**Lesson:** Different tools read different env files. Know which file each tool reads:
+
+- Prisma CLI → `.env`
+- Next.js app → `.env.local` (overrides `.env`)
+- Both → `.env` (but `.env.local` takes precedence in Next.js)
+
+---
+
+### Problem 7: `prisma.config.ts` Auto-Created — Causing False Errors
+
+**What happened:** `pnpm exec prisma init` auto-created an empty `prisma.config.ts`. This confused the VS Code extension into thinking we're using Prisma 7 config system.
+
+**Solution:** Delete it. Prisma 6 does not need `prisma.config.ts`:
+
+```bash
+rm prisma.config.ts
+```
+
+---
+
+### Problem 8: shadcn Installed Files to Root Instead of `src/`
+
+**What happened:** `npx shadcn@latest init` created `components/`, `lib/`, and `hooks/` at the project root, not inside `src/`.
+
+**Root cause:** We chose `--yes` in `create-next-app` which did not create a `src/` folder by default. shadcn read this and installed to root.
+
+**Solution:**
+
+1. Manually moved folders to `src/` using Windows File Explorer (PowerShell permission issue prevented `mv` command)
+2. Updated `components.json` aliases to point to `@/components`, `@/lib`, `@/hooks`
+
+**Lesson:** When you configure a non-default project structure (src/ folder), you must also configure all dependent tools to follow that structure. Check each tool's config file after setup.
+
+---
+
+### Problem 9: Root Layout Missing `<html>` and `<body>` Tags
+
+**Error:**
+
+```
+Runtime Error: Missing <html> and <body> tags in the root layout.
+```
+
+**Root cause:** Following next-intl's suggested pattern, we made `src/app/layout.tsx` return `{children}` directly without html/body tags. Next.js 16 requires html/body in the root layout.
+
+**Solution:** Root layout has html/body. `[locale]/layout.tsx` wraps children only (no extra html/body):
+
+```tsx
+// src/app/layout.tsx — has html + body (Next.js requirement)
+export default function RootLayout({ children }) {
+  return (
+    <html suppressHydrationWarning>
+      <body>{children}</body>
+    </html>
+  );
+}
+
+// src/app/[locale]/layout.tsx — sets lang, dir, providers (NO html/body)
+export default async function LocaleLayout({ children, params }) {
+  const { locale } = await params;
+  // ... validation ...
+  return <NextIntlClientProvider>{children}</NextIntlClientProvider>;
+}
+```
+
+**But to set lang and dir dynamically, use `generateStaticParams` + metadata:**
+The locale-specific html attributes (`lang`, `dir`) are set via Next.js's `generateMetadata` or via a client component that sets them after hydration.
+
+---
+
+## 8. Key Decisions Log (Questions We Discussed)
+
+### Decision 1: Auto-Approve Listings vs Manual Review
+
+**Question:** Should new listings require admin approval before going live?
+
+**Decision:** Auto-approve. Listings go live immediately with an "Unverified" badge.
+
+**Rationale:** Manual review is a bottleneck. The badge informs users while allowing business owners to list immediately. Admins react to problems after the fact.
+
+**Mitigations for abuse:**
+
+- Rate limit: max 1 new listing per 24 hours per account
+- Email verification required before creating listings
+- Community flag system
+- Admin can suspend listings and ban accounts
+
+---
+
+### Decision 2: Turbopack — Use It or Skip It?
+
+**Question asked by junior:** "Turbopack seems important for faster development — why did you disable it?"
+
+**Initial decision (wrong):** Disable Turbopack with `--no-turbopack`
+
+**Corrected decision:** Enable Turbopack (omit the flag)
+
+**Rationale:** Turbopack dev mode is fully stable in Next.js 15+. Next.js 16 makes it the default. Benefits: hot reload in ~150ms vs ~1.5s, cold start ~1.5s vs ~8s.
+
+**Lesson for senior:** Always verify assumptions against current documentation. Next.js 16 changed this.
+
+---
+
+### Decision 3: `@latest` vs Pinned Version for `create-next-app`
+
+**Question asked by junior:** "Why not just use `create-next-app@latest`?"
+
+**Initial decision (wrong):** Pin to `@15`
+
+**Corrected decision:** Use `@latest` (gets Next.js 16 — Active LTS)
+
+**Rationale:** Starting a new project on a maintenance release (15.x) means upgrading to Active LTS (16.x) in 6 months. No reason to delay.
+
+**Lesson:** Always check `endoflife.date/{technology}` before pinning a version.
+
+---
+
+### Decision 4: npm vs pnpm vs Bun
+
+**Question asked by junior:** "Why not use pnpm or bun? They're faster."
+
+**Decision:** Use pnpm
+
+**Rationale:**
+
+- pnpm: 3.4× faster than npm, zero compatibility issues, industry standard for monorepos
+- Bun: fastest, but compatibility issues with some Prisma operations on Windows
+- npm: no compelling reason to use in 2026
+
+---
+
+### Decision 5: Prisma 6 vs Prisma 7
+
+**Decision:** Prisma 6
+
+**Rationale:** Prisma 7 (November 2025) requires driver adapters — more setup, all online documentation references v6 patterns, and this is a learning project where minimizing unexpected breaking changes is valuable.
+
+**Upgrade path:** Documented at `prisma.io/docs/orm/more/upgrade-guides/upgrading-versions/upgrading-to-prisma-7`
+
+---
+
+### Decision 6: Geographic Scope
+
+**Decision:** Single city (Al Nabik) at launch. URL: `/al-nabik/pharmacies/...`
+
+**Architecture:** `Country → Region → City` hierarchy in database from Day 1. Adding a second city = zero code changes (one DB row).
+
+**Principle:** Design for extension, not for the future. Don't build multi-city UI now (over-engineering). Do build the data model to support it.
+
+---
+
+### Decision 7: Business Verification — Two-Tier Trust System
+
+**Decision:** Anyone can register. Listings show "Unverified" badge until admin verifies.
+
+**Two tiers:**
+
+- **Tier 0 (default):** Self-claimed. Live immediately with orange "غير موثق" badge.
+- **Tier 1 (verified):** Admin contacts business, confirms information, grants blue "✓ موثق" badge.
+
+**Rationale:** Serves the carpenter who has no certificate AND protects against fake professional listings. Creates incentive for business owners to cooperate with verification (they want the badge).
+
+**Future:** Verification becomes a paid service. Infrastructure is already built.
+
+---
+
+### Decision 8: shadcn Radix vs Base UI
+
+**Decision:** Radix UI
+
+**Rationale:** Base UI released v1.0 in December 2025 — too new, small community, few tutorials. Radix has 4 years of production battle-testing.
+
+---
+
+### Decision 9: ESLint `.eslintrc.json` vs Flat Config
+
+**What we learned:** ESLint 9 (which ships with Next.js 16) uses flat config (`eslint.config.mjs`). The old `.eslintrc.json` format is completely unsupported. Community tutorials written before 2025 show the old format.
+
+**Key rule:** Always check ESLint's own docs for the current format, not tutorials.
+
+---
+
+## 9. Commands Reference
+
+### Daily Development
+
+```bash
+# Start development server
+pnpm dev
+
+# Type checking (fast, no build)
+pnpm type-check
+
+# Lint source files
+pnpm lint
+
+# Format all files
+pnpm format
+
+# Check formatting without changing files
+pnpm format:check
+```
+
+### Database (Prisma)
+
+```bash
+# ALWAYS use pnpm exec — never pnpx
+
+# Validate schema
+pnpm exec prisma validate
+
+# Create and apply a new migration
+pnpm exec prisma migrate dev --name your_migration_name
+
+# Apply migrations (production — no new migration files)
+pnpm exec prisma migrate deploy
+
+# Open visual database browser
+pnpm exec prisma studio
+
+# Regenerate Prisma Client (after schema changes)
+pnpm exec prisma generate
+
+# Seed the database
+pnpm exec prisma db seed
+
+# Reset database (WARNING: deletes all data)
+pnpm exec prisma migrate reset
+```
+
+### Docker
+
+```bash
+# Start Postgres + Redis
+docker compose up -d
+
+# Stop containers (data preserved)
+docker compose down
+
+# View container logs
+docker compose logs -f
+
+# Check container health
+docker compose ps
+
+# Nuclear reset (deletes all data)
+docker compose down -v
+```
+
+### Git (Conventional Commits Required)
+
+```bash
+# Valid commit message format: type(scope): description
+git commit -m "feat(auth): add Google OAuth provider"
+git commit -m "fix(listings): correct slug for Arabic names"
+git commit -m "chore(deps): upgrade Prisma to 6.19.2"
+git commit -m "docs(readme): add setup instructions"
+git commit -m "refactor(middleware): simplify RBAC check"
+git commit -m "test(auth): add password hashing unit tests"
+
+# Types: feat | fix | chore | docs | refactor | test | style | perf | ci
+```
+
+### Build & Deploy
+
+```bash
+# Production build
+pnpm build
+
+# Start production server locally
+pnpm start
+```
+
+---
+
+## 10. Environment Variables Reference
+
+### `.env` (Prisma CLI only)
+
+```bash
+DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+DIRECT_DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+```
+
+### `.env.local` (Next.js app)
+
+All variables from `.env.example` with real values. See `.env.example` for full documentation and descriptions.
+
+### Variable naming convention
+
+- `NEXT_PUBLIC_*` — exposed to browser (safe for public values only)
+- Everything else — server-side only, never exposed to browser
+
+---
+
+## 11. What Comes Next
+
+### Phase 1: Authentication System
+
+**Goal:** User can sign up, verify email, sign in, reset password, sign out.
+
+**Key files to create:**
+
+- `src/lib/auth.ts` — Auth.js v5 configuration
+- `src/lib/rate-limit.ts` — Rate limiting via Upstash Redis
+- `src/middleware.ts` — Add auth checks to existing locale middleware
+- `src/features/auth/actions.ts` — Server Actions for all auth operations
+- `src/features/auth/schemas.ts` — Zod validation schemas
+- `src/features/auth/utils.ts` — Password hashing, token generation
+- `src/app/[locale]/(auth)/` — All auth pages
+
+**Key packages to install:**
+
+```bash
+pnpm add next-auth@beta @auth/prisma-adapter bcryptjs
+pnpm add -D @types/bcryptjs
+```
+
+**Before starting Phase 1:** Run `pnpm build` and confirm Phase 0 is fully complete. Never start a new phase on a failing build.
+
+---
+
+_This README is a living document. Update it after every significant decision, problem, or phase completion._
 
 _Last updated: Phase 0 completion_
-````
