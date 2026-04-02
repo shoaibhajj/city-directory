@@ -1,4 +1,3 @@
-import env from "@/env";
 // src/lib/prisma.ts
 // Location: src/lib/prisma.ts
 //
@@ -22,6 +21,7 @@ import env from "@/env";
 // globalThis persists across hot-reloads. So we reuse the same instance.
 // In production (not dev), hot-reload doesn't happen, so we always create fresh.
 
+import { env } from "@/env";
 import { PrismaClient } from "@prisma/client";
 // This is the TypeScript type trick for accessing globalThis properties
 // that TypeScript doesn't know about by default
