@@ -1,46 +1,401 @@
 // prisma/schema.prisma
-// Location: prisma/schema.prisma
 //
-// This is your DATABASE BLUEPRINT.
-// Prisma reads this file and:
-//   1. Generates TypeScript types for all your models
-//   2. Creates SQL migration files when you change the schema
-//   3. Gives you a type-safe query client
-//
-// GOLDEN RULE: The schema is the SINGLE SOURCE OF TRUTH for your database structure.
-// Never manually alter your database tables — always change the schema and run migrations.
-// This way, the schema always matches what's in the DB.
+// HOW TO READ THIS FILE:
+// Each model = one database table.
+// Each field = one column in that table.
+// Relations link rows across tables (like foreign keys in SQL).
+// @@index = tells PostgreSQL to build a fast lookup structure for that column.
+// ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  
-  // Standard URL — used for all queries
-  url = env("DATABASE_URL")
-  
-  // Direct URL — bypasses connection poolers (required for migrations on Neon/Supabase)
-  // For local Docker, this is the same URL. For Neon, it's a different connection string.
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL") // used by Prisma Migrate (bypasses connection pooler)
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// INITIAL SCHEMA: Just a health-check model to verify Prisma works.
-// All real models will be added in Phase 2.
-// 
-// WHY add a placeholder model now?
-// We need at least one model to run "prisma migrate dev" and verify
-// the database connection works before we build on top of it.
-// ─────────────────────────────────────────────────────────────────────
 
-// This model will be REPLACED in Phase 2 with the full User model.
-// It is only here to test the Prisma → PostgreSQL connection.
-model HealthCheck {
-  id        String   @id @default(cuid())
-  message   String   @default("prisma_connected")
+// ═════════════════════════════════════════════════════════════════════════════
+// ENUMS
+// An enum is a column that can only hold one of a fixed set of string values.
+// PostgreSQL enforces this at the DB level — you cannot insert "WIZARD" into
+// a Role column. It is safer than a plain String field.
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum Role {
+  SUPER_ADMIN    // Can do everything: change roles, delete admins, edit settings
+  ADMIN          // Can moderate listings, approve videos, ban users
+  BUSINESS_OWNER // Default role for anyone who signs up
+}
+
+// WHY only 3 roles?
+// Role systems grow complex fast. Start with the minimum that covers your
+// access rules. You can always add roles later — removing them is harder
+// because you must migrate existing data.
+
+enum AuditAction {
+  USER_CREATED
+  USER_DELETED
+  EMAIL_VERIFIED
+  PASSWORD_RESET
+  // More values will be added in Phase 2 when business listings are introduced.
+  // Prisma requires a migration every time you add an enum value — that is fine,
+  // it is a schema change and should be tracked in version control.
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: User
+//
+// WHY this model exists:
+// Every human who interacts with the app has one User row. It is the central
+// identity record. Everything else (sessions, listings, tokens) hangs off it.
+//
+// WHY some fields are nullable (String? / DateTime?):
+// A "?" means the column is nullable in PostgreSQL. For example:
+//   - passwordHash is null for Google OAuth users (they have no password).
+//   - emailVerified is null until the user clicks the verification link.
+//   - deletedAt is null for active users; we set it instead of deleting the row
+//     (this is called "soft delete" — the data is preserved for audit purposes).
+// ═════════════════════════════════════════════════════════════════════════════
+
+model User {
+  // ── Primary Key ────────────────────────────────────────────────────────────
+  // @id         = this is the primary key (every table must have one)
+  // @default(cuid()) = Prisma auto-generates a unique ID like "clx7abc123..."
+  //
+  // WHY cuid() over auto-increment integer?
+  // Auto-increment IDs (1, 2, 3...) leak information: attacker knows you have
+  // N users. cuid() values are random and do not reveal row count.
+  // Also safe to generate on the client side without a DB round-trip.
+  id String @id @default(cuid())
+
+  name          String?   // Display name. Nullable because Google OAuth might not provide it.
+  email         String    @unique // @unique = PostgreSQL UNIQUE constraint. Two users cannot share an email.
+  emailVerified DateTime? // null = not yet verified. Set to NOW() when they click the email link.
+  image         String?   // Profile photo URL. Usually set by Google OAuth.
+
+  // The actual password hash. NULL for OAuth-only accounts.
+  // WHY store a hash and not the password?
+  // If your database is stolen, attackers get bcrypt hashes, not real passwords.
+  // bcrypt hashes cannot be reversed — the attacker must guess the password
+  // and hash each guess (very slow with 12 rounds).
+  passwordHash String?
+
+  role      Role      @default(BUSINESS_OWNER) // Every new signup gets the least-privileged role.
+  deletedAt DateTime? // Soft delete. NULL = active. Set to NOW() to "delete" the account.
+
+  createdAt DateTime @default(now()) // Set once on INSERT, never changes.
+  updatedAt DateTime @updatedAt      // @updatedAt = Prisma auto-sets this on every UPDATE.
+
+  // ── Relations ──────────────────────────────────────────────────────────────
+  // These are NOT columns in the database. They are Prisma-level helpers that
+  // let you write: user.sessions or user.emailVerificationTokens in your code.
+  // The actual foreign keys live on the OTHER side of the relation.
+  accounts                Account[]
+  sessions                Session[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  auditLogs               AuditLog[] @relation("ActorAuditLogs")
+  // "ActorAuditLogs" is a named relation. We need a name because AuditLog
+  // could theoretically have multiple relations to User. Naming avoids ambiguity.
+
+  // ── Indexes ────────────────────────────────────────────────────────────────
+  // @@index([email])
+  // WHY: We look up users by email constantly (sign-in, forgot password,
+  // "is this email already registered?"). Without an index, PostgreSQL must
+  // scan EVERY row to find a match — O(n). With a B-tree index on email,
+  // lookup is O(log n) — fast even with 1 million users.
+  // Note: @unique already creates an index, so this line is technically
+  // redundant — but it documents intent clearly for future developers.
+  @@index([email])
+
+  // @@index([deletedAt])
+  // WHY: Almost every query filters out deleted users with `deletedAt: null`.
+  // This index lets PostgreSQL skip all soft-deleted rows instantly instead
+  // of scanning the full table.
+  @@index([deletedAt])
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: Account  (table name: oauth_accounts)
+//
+// WHY this model exists:
+// When a user signs in with Google, Auth.js stores the OAuth tokens here.
+// One User can have multiple Accounts (Google + GitHub + Facebook, etc.).
+// This model is required by @auth/prisma-adapter — do not rename or remove fields.
+//
+// WHY @@map("oauth_accounts")?
+// Auth.js internally uses the model name "Account". But in our database we
+// want the table named "oauth_accounts" to be descriptive. @@map renames
+// the table without changing the Prisma model name.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model Account {
+  id                String  @id @default(cuid())
+
+  // Foreign key to User. This is the "many" side of a one-to-many relation:
+  // one User can have many Accounts.
+  userId            String
+
+  type              String  // "oauth", "credentials", "email"
+  provider          String  // "google", "github", etc.
+  providerAccountId String  // The ID assigned by Google/GitHub for this user
+
+  // OAuth tokens. @db.Text = store as PostgreSQL TEXT (unlimited length).
+  // These can be very long JWT strings.
+  refresh_token String? @db.Text
+  access_token  String? @db.Text
+  expires_at    Int?    // Unix timestamp when access_token expires
+  token_type    String? // Usually "Bearer"
+  scope         String? // OAuth scopes granted (e.g., "email profile")
+  id_token      String? @db.Text
+  session_state String?
+
+  // ── Relation: Account → User ───────────────────────────────────────────────
+  // fields: [userId]       = the foreign key column IS ON THIS MODEL (Account.userId)
+  // references: [id]       = it points to User.id
+  // onDelete: Cascade      = if the User row is deleted, ALL their Account rows
+  //                          are automatically deleted too. No orphaned rows.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // @@unique([provider, providerAccountId])
+  // WHY: A combination of provider + providerAccountId must be unique.
+  // The same Google account (providerAccountId) cannot be linked to two
+  // different Users. This prevents account hijacking.
+  @@unique([provider, providerAccountId])
+
+  @@map("oauth_accounts")
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: Session
+//
+// WHY this model exists:
+// When a user signs in, Auth.js creates a Session row in this table and sets
+// a cookie on the user's browser with the sessionToken. On every request,
+// Auth.js reads the cookie, looks up the Session row, and knows who the user is.
+//
+// WHY database sessions instead of JWT?
+// With database sessions, signing out = deleting the row. Done.
+// With JWT sessions, the token is self-contained — you cannot invalidate it
+// until it expires naturally. If an admin bans a user at 10:00 AM and their
+// JWT expires at 11:00 AM, they can still use the app for one hour after being
+// banned. Database sessions make bans and role changes take effect instantly.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique // The token stored in the browser cookie. Must be unique.
+  userId       String            // Foreign key → User.id
+  expires      DateTime          // After this timestamp, Auth.js treats the session as invalid.
+
+  // Relation: Session → User
+  // onDelete: Cascade = if User is deleted, all their sessions are deleted too.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // @@index([userId])
+  // WHY: When we ban a user and want to delete all their sessions, we run:
+  //   DELETE FROM sessions WHERE userId = '...'
+  // Without this index, PostgreSQL scans the whole sessions table.
+  // With the index, it jumps directly to that user's rows.
+  @@index([userId])
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: VerificationToken
+//
+// WHY this model exists:
+// Required by @auth/prisma-adapter for the built-in "magic link" / email
+// provider flow. We are NOT using that feature (we have our own
+// EmailVerificationToken below), but the adapter needs this table to exist
+// or it will crash on startup.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model VerificationToken {
+  identifier String   // Usually the user's email
+  token      String   @unique
+  expires    DateTime
+
+  // @@unique([identifier, token])
+  // WHY: The adapter looks up tokens by both identifier AND token together.
+  // This composite unique constraint makes that lookup O(1).
+  @@unique([identifier, token])
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: EmailVerificationToken
+//
+// WHY this model exists (and why NOT use VerificationToken above?):
+// The Auth.js built-in VerificationToken has no concept of "used at" or
+// "user ID". We need custom fields to:
+//   1. Prevent token reuse (usedAt)
+//   2. Look up which user to verify (userId)
+//   3. Store a HASH of the token, not the raw token
+//
+// WHY store a hash (tokenHash) instead of the raw token?
+// The raw token is what we send in the email. If your database is breached,
+// the attacker gets tokenHash — a SHA-256 hash. They cannot reverse it to
+// get the raw token, so they cannot verify anyone's email.
+// This is the same principle as hashing passwords.
+//
+// Flow:
+//   1. Server generates rawToken (random 32 bytes → hex string)
+//   2. Server stores SHA-256(rawToken) in this table
+//   3. Server emails rawToken to user
+//   4. User clicks link → rawToken arrives at server
+//   5. Server hashes it again → looks up tokenHash → finds this row
+//   6. Server sets user.emailVerified = now() and this.usedAt = now()
+// ═════════════════════════════════════════════════════════════════════════════
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String    // Which user this token is for
+  tokenHash String    @unique // SHA-256 hash of the raw token. NEVER store the raw token.
+  expiresAt DateTime  // Token is invalid after this timestamp (24 hours from creation)
+  usedAt    DateTime? // NULL = not yet used. Set to NOW() on first use.
+                      // WHY: prevents replay attacks. A link in a forwarded email
+                      // cannot be used a second time.
+
   createdAt DateTime @default(now())
-  
-  @@map("health_check") // The actual SQL table name (snake_case by convention)
+
+  // Relation: EmailVerificationToken → User
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // @@index([tokenHash])
+  // WHY: Our lookup is always by tokenHash:
+  //   WHERE tokenHash = SHA256(rawToken)
+  // @unique already creates this index, but we add it explicitly for clarity.
+  @@index([tokenHash])
+
+  // @@index([userId])
+  // WHY: We may need to list or invalidate all pending tokens for a user
+  // (e.g., "resend verification" should first delete old tokens).
+  // With this index: DELETE WHERE userId = '...' is O(1) instead of O(n).
+  @@index([userId])
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: PasswordResetToken
+//
+// WHY this model exists:
+// Same security pattern as EmailVerificationToken but for password reset.
+//
+// Flow:
+//   1. User submits "forgot password" form with their email
+//   2. Server generates rawToken, stores SHA-256(rawToken) here with 1-hour expiry
+//   3. Server emails rawToken to user
+//   4. User clicks link → rawToken arrives at server
+//   5. Server hashes it → finds this row → verifies not expired, not used
+//   6. Server updates user.passwordHash → sets this.usedAt → deletes all sessions
+//
+// WHY 1-hour expiry (not 24h like email verification)?
+// Password reset tokens are higher-risk than email verification tokens.
+// If someone's email is compromised, a 24-hour window is dangerous.
+// 1 hour is enough time to complete the action while limiting exposure.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime  // 1 hour from creation
+  usedAt    DateTime? // NULL = unused. Prevents the same reset link from working twice.
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MODEL: AuditLog
+//
+// WHY this model exists:
+// An immutable record of every significant action taken in the system.
+// Think of it as the "flight recorder" of your application.
+//
+// Example rows:
+//   - User "ahmed@..." signed up → USER_CREATED
+//   - User "ahmed@..." verified email → EMAIL_VERIFIED
+//   - Admin "admin@..." suspended listing "XYZ" → LISTING_SUSPENDED (Phase 2+)
+//
+// WHY is this important?
+// Without audit logs, when a listing disappears and the owner complains,
+// you have no evidence of what happened, who did it, or when.
+// With audit logs, you can show: "Admin X suspended your listing at 14:32
+// because of reason Y." This is also required for GDPR compliance.
+//
+// WHY is actorId nullable (String?)?
+// Some actions happen without a logged-in user (e.g., a scheduled job
+// or an unauthenticated API call). actorId is null in those cases.
+//
+// WHY previousValues and newValues are Json?
+// We store a diff of what changed. For example, on a listing update:
+//   previousValues: { name: "Old Name", status: "DRAFT" }
+//   newValues:      { name: "New Name", status: "ACTIVE" }
+// Json type = PostgreSQL JSONB column. Flexible — no schema migration needed
+// when we add new fields to log.
+// ═════════════════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         String      @id @default(cuid())
+
+  // Who did the action? Nullable because some actions have no actor (system jobs).
+  actorId    String?
+  actorEmail String? // Denormalized: stored here so the log is readable even if the user is deleted
+  actorRole  Role?   // Same reason: role at the time of the action, not current role
+
+  action     AuditAction // What action was taken (enum — one of the defined values)
+  entityType String      // What KIND of thing was affected. "User", "BusinessProfile", etc.
+  entityId   String      // The ID of the specific row that was affected.
+
+  // The state of the record BEFORE the action (null for CREATE actions)
+  previousValues Json?
+  // The state of the record AFTER the action (null for DELETE actions)
+  newValues      Json?
+
+  ipAddress String? // Where the request came from. Useful for fraud investigation.
+
+  createdAt DateTime @default(now()) // Audit logs are append-only. Never updatedAt.
+
+  // Relation: AuditLog → User (the actor)
+  // onDelete: SetNull = if the actor's User row is deleted (account deletion),
+  // we keep the audit log but set actorId to null. The log must survive
+  // the user's deletion — that's the whole point of having it.
+  // (Compare with Cascade: Cascade would delete the audit log when the user
+  // is deleted, which would defeat the purpose entirely.)
+  actor User? @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+
+  // @@index([entityType, entityId])
+  // WHY a COMPOSITE index on two columns?
+  // Our most common query is: "Show me all audit logs for listing ABC123."
+  // That query is: WHERE entityType = 'BusinessProfile' AND entityId = 'ABC123'
+  // A composite index on (entityType, entityId) covers BOTH conditions at once.
+  // A single-column index on entityId alone would be less selective
+  // (many different entity types could share the same ID format).
+  @@index([entityType, entityId])
+
+  // @@index([actorId])
+  // WHY: "Show me everything admin X has ever done" is a common admin query.
+  // This makes that lookup fast.
+  @@index([actorId])
+
+  // @@index([createdAt])
+  // WHY: Audit logs are almost always queried with a date range filter:
+  // "Show me all actions from the last 7 days."
+  // Without this index, PostgreSQL scans all audit log rows.
+  // The audit log table grows FAST — it will have millions of rows eventually.
+  @@index([createdAt])
 }

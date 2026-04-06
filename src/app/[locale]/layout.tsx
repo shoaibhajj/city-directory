@@ -28,6 +28,8 @@ import { getMessages } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { Cairo } from "next/font/google";
 import { routing } from "@/i18n/routing";
+import { SessionProvider } from "next-auth/react";
+import { auth } from "@/lib/auth";
 
 // ─── Font Setup ───────────────────────────────────────────────────────
 // next/font automatically:
@@ -71,6 +73,7 @@ export default async function LocaleLayout({
 }: LocaleLayoutProps) {
   // Await params — required in Next.js 15+ (params became async)
   const { locale } = await params;
+  const session = await auth(); // pass session to client so no extra fetch
 
   // Validate locale — if someone visits /fr/... they get a 404
   // hasLocale checks against routing.locales = ['ar', 'en']
@@ -104,7 +107,9 @@ export default async function LocaleLayout({
           Without this, useTranslations() in client components returns nothing.
         */}
         <NextIntlClientProvider messages={messages} locale={locale}>
-          {children}
+          <SessionProvider session={session} basePath="/api/v1/auth">
+            {children}
+          </SessionProvider>
         </NextIntlClientProvider>
       </body>
     </html>
