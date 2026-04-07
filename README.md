@@ -1,1084 +1,1110 @@
-# Phase 1 — Authentication System
+# Phase 2: Database & Prisma Setup — Complete Reference
 
-## دليل النبك | Nabk City Directory
-
-> **Status:** ✅ Complete  
-> **Complexity:** Medium  
-> **Time Taken:** 4–5 days  
-> **Dependencies:** Phase 0 (Project Bootstrap)
+> **Who this document is for:** Any developer (including future-you) who wants to understand
+> exactly what was built in Phase 2, why every decision was made, and how to reproduce it from scratch.
+> Read this before touching any database model.
 
 ---
 
 ## Table of Contents
 
-1. [Why Authentication First?](#1-why-authentication-first)
-2. [Authentication Theory](#2-authentication-theory)
-   - [Identity vs. Authorization](#identity-vs-authorization)
-   - [How Sessions Work](#how-sessions-work)
-   - [JWT vs. Database Sessions](#jwt-vs-database-sessions)
-   - [Why Auth.js v5?](#why-authjs-v5)
-   - [Security Primitives](#security-primitives)
-3. [Architecture Overview](#3-architecture-overview)
-4. [File Structure](#4-file-structure)
-5. [Step-by-Step Implementation](#5-step-by-step-implementation)
-   - [Step 1 — Dependencies](#step-1--dependencies)
-   - [Step 2 — Prisma Schema](#step-2--prisma-schema)
-   - [Step 3 — Environment Variables](#step-3--environment-variables)
-   - [Step 4 — TypeScript Type Augmentation](#step-4--typescript-type-augmentation)
-   - [Step 5 — Auth.js Configuration](#step-5--authjs-configuration)
-   - [Step 6 — Route Handler](#step-6--route-handler)
-   - [Step 7 — Security Utilities](#step-7--security-utilities)
-   - [Step 8 — Rate Limiting](#step-8--rate-limiting)
-   - [Step 9 — Zod Schemas](#step-9--zod-schemas)
-   - [Step 10 — Audit Logging](#step-10--audit-logging)
-   - [Step 11 — Email Sending](#step-11--email-sending)
-   - [Step 12 — Server Actions](#step-12--server-actions)
-   - [Step 13 — Middleware](#step-13--middleware)
-   - [Step 14 — Auth Pages (UI)](#step-14--auth-pages-ui)
-   - [Step 15 — i18n Translation Keys](#step-15--i18n-translation-keys)
-6. [Critical Bugs Fixed During Implementation](#6-critical-bugs-fixed-during-implementation)
-7. [Security Decisions Reference](#7-security-decisions-reference)
-8. [Phase 1 Done Criteria](#8-phase-1-done-criteria)
-9. [What Phase 2 Will Harden](#9-what-phase-2-will-harden)
+1. [What Phase 2 Delivers](#1-what-phase-2-delivers)
+2. [Why a Dedicated Database Phase?](#2-why-a-dedicated-database-phase)
+3. [Prisma Syntax Reference](#3-prisma-syntax-reference)
+4. [The Complete Data Model](#4-the-complete-data-model)
+5. [Model-by-Model Reference](#5-model-by-model-reference)
+6. [Relation Map — How Tables Connect](#6-relation-map--how-tables-connect)
+7. [PostgreSQL Extensions & GIN Indexes](#7-postgresql-extensions--gin-indexes)
+8. [Audit Log System](#8-audit-log-system)
+9. [Platform Settings Cache](#9-platform-settings-cache)
+10. [Seed Data](#10-seed-data)
+11. [Every Command Used in Phase 2](#11-every-command-used-in-phase-2)
+12. [Mistakes We Hit & How We Fixed Them](#12-mistakes-we-hit--how-we-fixed-them)
+13. [Phase 2 Done Criteria](#13-phase-2-done-criteria)
 
 ---
 
-## 1. Why Authentication First?
+## 1. What Phase 2 Delivers
 
-Every feature in this application needs to know **WHO** is making the request:
+At the end of this phase, the database is fully built and ready for all future phases.
 
-- A business owner can only edit **their own** listing — not someone else's.
-- An admin can moderate listings — but only if the system knows they are an admin.
-- A guest browsing the directory gets read-only access — the system needs to
-  know they have no session.
-
-Without a working identity system, you cannot build anything that has ownership,
-permissions, or personalization. **Auth is the bedrock that every other feature
-stands on.**
-
----
-
-## 2. Authentication Theory
-
-### Identity vs. Authorization
-
-These two concepts are often confused but are fundamentally different:
-
-| Concept            | Question answered           | Example                                           |
-| ------------------ | --------------------------- | ------------------------------------------------- |
-| **Authentication** | Who are you?                | "You are user ID `abc123`, role `BUSINESS_OWNER`" |
-| **Authorization**  | What are you allowed to do? | "You can edit listing `xyz` because you own it"   |
-
-Phase 1 implements **Authentication only**. Authorization (ownership checks,
-RBAC enforcement) happens in Server Actions and is built in later phases.
+| Deliverable                                                                   | Status |
+| ----------------------------------------------------------------------------- | ------ |
+| 14 new database tables (all domain models)                                    | ✅     |
+| `pg_trgm` trigram extension for Arabic search                                 | ✅     |
+| `unaccent` extension for diacritic-insensitive search                         | ✅     |
+| GIN indexes on `searchableText` and `nameAr`                                  | ✅     |
+| `writeAuditLog()` helper in `src/lib/audit.ts`                                | ✅     |
+| `getSetting()` with Redis caching in `src/features/platform/settings.ts`      | ✅     |
+| Seed data: Syria → ريف دمشق → النبك, 10 categories, 1 super admin, 7 settings | ✅     |
 
 ---
 
-### How Sessions Work
+## 2. Why a Dedicated Database Phase?
 
-When a user signs in, the server needs a way to remember them across future
-requests. HTTP is stateless — every request arrives with no memory of the last
-one. Sessions solve this:
-User submits email + password
+**The naive approach:** Create all 20+ tables in Phase 0 before writing any code.
 
-Server verifies credentials
+**The problem with the naive approach:**
 
-Server creates a session token (a long random string or encrypted JWT)
+- Migrations get out of sync with the code that uses them
+- You migrate tables for features that don't exist yet
+- When you change a feature design, you also have to undo migrations
 
-Server sends the token to the browser as an HttpOnly cookie
+**Our approach (vertical slices):**
 
-Browser attaches the cookie to every future request automatically
+- Phase 1 created only the tables auth needed: `users`, `sessions`, `oauth_accounts`, token tables
+- Phase 2 creates all remaining domain tables now that we know exactly what Phase 3–12 need
+- Every migration is always in sync with the code that needs it
 
-Server reads the cookie, decodes the token, and knows who is making the request
+**The rule a senior engineer follows:**
 
-text
-
-The key security property: the cookie is **HttpOnly** — JavaScript running on
-the page cannot read it. This prevents XSS attacks from stealing the session.
+> Never run a migration for a table until you are about to write the code that reads from or writes to that table.
 
 ---
 
-### JWT vs. Database Sessions
+## 3. Prisma Syntax Reference
 
-There are two dominant approaches to storing session state:
+Before reading the models, understand every annotation used:
 
-#### Database Sessions
+### Field Annotations
 
-- Server stores the session in a database table (`sessions`)
-- Cookie contains a random opaque token (e.g., `abf3c9...`)
-- On every request: server looks up the token in the DB → finds the user record
-- **Advantage:** Instant revocation — delete the row, the session is gone
-- **Disadvantage:** DB query on every single request
+| Annotation         | Meaning                                            | Example                              |
+| ------------------ | -------------------------------------------------- | ------------------------------------ |
+| `@id`              | This field is the primary key                      | `id String @id`                      |
+| `@default(cuid())` | Auto-generate a unique ID on INSERT                | `id String @id @default(cuid())`     |
+| `@default(now())`  | Set to current timestamp on INSERT                 | `createdAt DateTime @default(now())` |
+| `@default(false)`  | Set boolean to false on INSERT                     | `isVerified Boolean @default(false)` |
+| `@default(0)`      | Set integer to 0 on INSERT                         | `viewCount Int @default(0)`          |
+| `@updatedAt`       | Prisma auto-sets this on every UPDATE              | `updatedAt DateTime @updatedAt`      |
+| `@unique`          | PostgreSQL UNIQUE constraint — no duplicate values | `email String @unique`               |
+| `@db.Text`         | Use PostgreSQL TEXT type (unlimited length)        | `descriptionAr String? @db.Text`     |
+| `?` after type     | Column is nullable (can be NULL in DB)             | `nameEn String?`                     |
 
-#### JWT Sessions (what we use)
+### Why `@db.Text` matters
 
-- Server creates a signed/encrypted JSON payload containing user data
-- Cookie contains the entire encrypted payload (a JWE/JWS token)
-- On every request: server decrypts the cookie, reads the user data — **no DB query**
-- **Advantage:** Zero DB queries per request — faster, scales better
-- **Disadvantage:** Cannot instantly revoke — valid until it expires
-
-#### Why We Chose JWT (and it was not the original plan)
-
-The original design called for `strategy: "database"`. After implementation it
-was discovered that **Auth.js v5 beta does not call `adapter.createSession()`
-for the Credentials provider** — only for OAuth providers. Using
-`strategy: "database"` with Credentials caused:
-
-1. `authorize()` would run and return the user ✅
-2. Auth.js would write a JWT to the cookie instead of creating a DB session ❌
-3. `auth()` in layouts would query `SELECT FROM Session WHERE token = ?`
-4. No row existed → session returned `null` → user stuck on sign-in page
-
-The fix: switch to `strategy: "jwt"`. The PrismaAdapter is kept for Google
-OAuth account linking. The JWT tradeoff (no instant revocation) will be
-addressed in Phase 2 by adding a `passwordChangedAt` field and checking it
-inside the `jwt` callback.
-
----
-
-### Why Auth.js v5?
-
-Auth.js (formerly NextAuth.js) is a security-focused library maintained by a
-dedicated team. Building auth from scratch is a common source of critical
-vulnerabilities:
-
-| Attack           | What a hand-rolled implementation misses                | How Auth.js handles it                 |
-| ---------------- | ------------------------------------------------------- | -------------------------------------- |
-| CSRF             | Missing or incorrectly validated CSRF token             | Built-in CSRF token on every form      |
-| Session fixation | Not rotating session ID after privilege change          | Session rotation built into OAuth flow |
-| Cookie security  | Missing `Secure`, `HttpOnly`, `SameSite` flags          | Set correctly by default               |
-| Timing attacks   | String comparison reveals valid vs. invalid tokens      | Constant-time comparison everywhere    |
-| Open redirect    | Trusting user-supplied `callbackUrl` without validation | URL validation enforced by the library |
-
----
-
-### Security Primitives
-
-#### bcrypt
-
-Passwords are **never stored as plaintext**. They are hashed using bcrypt with
-12 rounds.
-plaintext: "MyPassword1"
-↓ bcrypt(rounds=12)
-hash: "$2b$12$X9v4qzR..." (stored in DB)
-
-text
-
-**Why 12 rounds?** Each additional round doubles the computation time. 12 rounds
-takes ~300ms on modern hardware. Slow enough to deter brute force, fast enough
-that real users do not notice.
-
-**Why bcryptjs and not bcrypt?** The npm `bcrypt` package uses native C++
-bindings that do not work in all Next.js deployment environments. `bcryptjs` is
-pure JavaScript — works everywhere.
-
-#### Token Security (email verification + password reset)
-
-Tokens sent in emails follow a two-layer design:
-Generate: rawToken = crypto.randomBytes(32).toString("hex")
-→ 256 bits of entropy, impossible to guess
-
-Hash: tokenHash = SHA-256(rawToken)
-
-Store: tokenHash in DB (never the raw token)
-
-Send: rawToken in email link
-
-Verify: hash the received token → compare to DB record
-
-text
-
-**Why hash the token before storing?** If the database is breached, the attacker
-gets only SHA-256 hashes. They cannot use these hashes to verify emails or reset
-passwords — they need the raw token which was sent only to the user's email inbox.
-This is the same principle used by GitHub's password reset flow.
-
-#### User Enumeration Prevention
-
-In `forgotPasswordAction`, the response is identical whether or not the email
-exists in the database:
-
-```typescript
-// Attacker sends request for attacker@evil.com
-// They CANNOT tell from the response whether that email is registered
-if (!user) return { success: true }; // same response as real user
-```
-
-This prevents attackers from probing which email addresses are registered.
-
----
-
-## 3. Architecture Overview
-
-Browser
-│ ├─ GET /ar/dashboard
-│ ↓
-│ [Middleware] — next-intl only, no auth check (Edge-safe)
-│ ↓
-│ [DashboardLayout] — Server Component, calls auth()
-│ ↓ auth() decrypts JWT cookie, returns session
-│ session === null → redirect /ar/sign-in
-│ session.emailVerified === null → redirect /ar/verify-email
-│ session OK → render dashboard ✅
-│ ├─ POST sign-in form
-│ ↓
-│ signIn("credentials", { redirect: false }) ← next-auth/react (client)
-│ ↓
-│ POST /api/v1/auth/callback/credentials
-│ ↓
-│ authorize() → verifyPassword() → returns user
-│ ↓
-│ jwt() callback → encodes id, role, emailVerified into JWT
-│ ↓
-│ Set-Cookie: authjs.session-token = <JWE encrypted JWT>
-│ ↓
-│ window.location.href = /ar/dashboard ← hard navigation reads fresh cookie
-│ └─ POST sign-up form
-↓
-signUpAction() — Server Action
-↓
-validate → check email → hashPassword → createUser
-↓
-generateSecureToken → hashToken → store EmailVerificationToken
-↓
-sendVerificationEmail (fire-and-forget)
-↓
-return success (user NOT signed in — must verify email first)
-
-text
-
----
-
-## 4. File Structure
-
-src/
-├── lib/
-│ ├── auth.ts # Auth.js v5 full configuration
-│ ├── rate-limit.ts # Upstash Redis sliding window limiters
-│ └── audit.ts # Fire-and-forget audit log writer
-│
-├── features/auth/
-│ ├── actions.ts # All Server Actions
-│ ├── schemas.ts # Zod validation schemas
-│ ├── utils.ts # hashPassword, verifyPassword, tokens
-│ └── emails.ts # Resend email senders
-│
-├── types/
-│ └── next-auth.d.ts # TypeScript module augmentation
-│
-├── app/[locale]/
-│ ├── (auth)/
-│ │ ├── layout.tsx # Centered card layout
-│ │ ├── sign-in/page.tsx
-│ │ ├── sign-up/page.tsx
-│ │ ├── forgot-password/page.tsx
-│ │ ├── reset-password/page.tsx
-│ │ └── verify-email/page.tsx
-│ │
-│ ├── (dashboard)/
-│ │ ├── layout.tsx # Session + emailVerified guard
-│ │ └── dashboard/page.tsx
-│ │
-│ └── api/v1/auth/[...nextauth]/
-│ └── route.ts # Auth.js HTTP route handler
-│
-├── middleware.ts # next-intl only — no auth at edge
-│
-messages/
-├── ar.json # Arabic translations
-└── en.json # English translations
-
-text
-
----
-
-## 5. Step-by-Step Implementation
-
-### Step 1 — Dependencies
-
-```bash
-pnpm add next-auth@beta @auth/prisma-adapter bcryptjs resend \
-         react-hook-form @hookform/resolvers
-pnpm add -D @types/bcryptjs
-```
-
-| Package                | Purpose                          | Why this one                   |
-| ---------------------- | -------------------------------- | ------------------------------ |
-| `next-auth@beta`       | Auth.js v5 — session, OAuth, JWT | App Router native              |
-| `@auth/prisma-adapter` | Connects Auth.js to Prisma       | Official adapter               |
-| `bcryptjs`             | Password hashing                 | Pure JS — no native bindings   |
-| `resend`               | Transactional email API          | Simple API, generous free tier |
-| `react-hook-form`      | Form state management            | Zero re-renders on keystroke   |
-| `@hookform/resolvers`  | Zod + React Hook Form bridge     | Official integration           |
-
----
-
-### Step 2 — Prisma Schema
-
-The schema defines 6 new models. Each serves a specific purpose:
-
-#### `User`
+Without `@db.Text`, Prisma maps a `String` to `VARCHAR(191)` — a 191-character limit.
+For business descriptions, addresses, and audit log payloads, 191 characters is not enough.
+`@db.Text` maps to PostgreSQL's `TEXT` type which stores up to 1 GB of text.
 
 ```prisma
+// ❌ Capped at 191 characters — will silently truncate long descriptions
+descriptionAr String?
+
+// ✅ Unlimited length — correct for user-written content
+descriptionAr String? @db.Text
+```
+
+### Model Annotations
+
+| Annotation            | Meaning                                                       |
+| --------------------- | ------------------------------------------------------------- |
+| `@@id([a, b])`        | Composite primary key across two columns                      |
+| `@@unique([a, b])`    | Composite unique constraint — combination must be unique      |
+| `@@index([a])`        | B-tree index on one column                                    |
+| `@@index([a, b])`     | Composite B-tree index on two columns                         |
+| `@@map("table_name")` | The actual PostgreSQL table name (overrides Prisma's default) |
+
+### Why `@@map()` on every model?
+
+Prisma defaults to PascalCase table names (`BusinessProfile`). PostgreSQL convention is snake_case (`business_profiles`). We use `@@map()` on every model so:
+
+- SQL queries look normal: `SELECT * FROM business_profiles`
+- DBeaver/TablePlus shows readable table names
+- Raw SQL migrations use the correct table names
+
+### Relation Annotations
+
+```prisma
+// One-to-many relation: ONE User has MANY BusinessProfiles
+// "ListingOwner" is the relation name — required when a model has
+// multiple relations to the same target model
+
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  emailVerified DateTime?  // null = not verified
-  passwordHash  String?    // null for Google-only accounts
-  role          Role       @default(BUSINESS_OWNER)
-  deletedAt     DateTime?  // null = active; soft-delete preserves audit history
+  ownedListings BusinessProfile[] @relation("ListingOwner")
+}
+
+model BusinessProfile {
+  ownerId String
+  owner   User   @relation("ListingOwner", fields: [ownerId], references: [id])
+  //                                        ↑ foreign key    ↑ what it points to
 }
 ```
 
-- `passwordHash` is nullable because Google OAuth users have no password
-- `deletedAt` is a soft delete — hard deleting breaks audit log foreign keys
-- `role` defaults to `BUSINESS_OWNER` — the least privileged real user role
+| `onDelete` option | Meaning                                        |
+| ----------------- | ---------------------------------------------- |
+| `Cascade`         | Delete child rows when parent is deleted       |
+| `SetNull`         | Set foreign key to NULL when parent is deleted |
+| `Restrict`        | Block deletion of parent if children exist     |
 
-#### `Account` (mapped to `oauth_accounts`)
+**Rule:** Use `Cascade` when the child cannot exist without the parent (e.g. a phone number without a business). Use `SetNull` when you want to keep the child row but lose the reference (e.g. an audit log after a user is deleted).
+
+---
+
+## 4. The Complete Data Model
+
+### All tables in the database after Phase 2
+
+```
+AUTH (Phase 1)                    DOMAIN (Phase 2)
+──────────────────                ──────────────────────────────────────────
+users                             countries
+sessions                          regions
+oauth_accounts                    cities
+verification_tokens               categories
+email_verification_tokens         subcategories
+password_reset_tokens             business_profiles
+                                  phone_numbers
+                                  working_hours
+                                  social_links
+                                  media_files
+                                  review_flags
+                                  audit_logs      ← extended from Phase 1
+                                  notifications
+                                  platform_settings
+```
+
+### Entity Relationship Overview
+
+```
+countries (1)
+  └── regions (many)
+        └── cities (many)
+              └── business_profiles (many)
+
+categories (1)
+  ├── subcategories (many)
+  └── business_profiles (many)
+
+users (1)
+  ├── business_profiles [as owner] (many)
+  ├── media_files [as uploader] (many)
+  ├── review_flags [as reporter] (many)
+  ├── notifications (many)
+  └── audit_logs [as actor] (many)
+
+business_profiles (1)
+  ├── phone_numbers (many)
+  ├── working_hours (7 — one per day)
+  ├── social_links (many)
+  ├── media_files (many)
+  └── review_flags (many)
+```
+
+---
+
+## 5. Model-by-Model Reference
+
+---
+
+### `Country`
+
+**Table:** `countries`
+**Purpose:** Top level of the geography hierarchy.
 
 ```prisma
-model Account {
-  provider          String
-  providerAccountId String  // Google's user ID
-  @@map("oauth_accounts")   // snake_case table, PascalCase model
+model Country {
+  id        String   @id @default(cuid())
+  name      String   // "Syria" — English name
+  nameAr    String   // "سوريا" — Arabic name
+  code      String   @unique // ISO 3166-1 alpha-2, e.g. "SY"
+  createdAt DateTime @default(now())
+
+  regions Region[]
+
+  @@map("countries")
 }
 ```
 
-Required by PrismaAdapter for OAuth provider account linking.
-`@@map` lets us keep snake_case table names while the adapter finds the
-model by the name `Account`.
+**Why `code` is unique:** ISO country codes are globally unique by definition. `@unique` enforces this at the DB level — you cannot accidentally insert Syria twice.
 
-#### `EmailVerificationToken` and `PasswordResetToken`
+**Why store both `name` and `nameAr`:**
+The app is bilingual. Every geography entity stores both languages so we never need a translation JOIN — the name is always immediately available in whichever language the user requested.
+
+---
+
+### `Region`
+
+**Table:** `regions`
+**Purpose:** A subdivision of a country (governorate/province level).
 
 ```prisma
-model EmailVerificationToken {
-  tokenHash String    @unique  // SHA-256 hash stored; raw token sent in email
-  expiresAt DateTime            // expires after 24 hours
-  usedAt    DateTime?           // set on use — prevents replay attacks
+model Region {
+  id        String   @id @default(cuid())
+  name      String   // "Damascus Countryside"
+  nameAr    String   // "ريف دمشق"
+  countryId String   // Foreign key → countries.id
+
+  country Country @relation(fields: [countryId], references: [id])
+  cities  City[]
+
+  @@index([countryId])
+  @@map("regions")
 }
 ```
 
-**Why `usedAt` instead of deleting the record on use?**
-If we deleted the token, a user clicking the email link twice would get a
-confusing "token not found" error. With `usedAt` we can return "already used"
-— a clear, helpful message. It also makes the audit trail complete.
+**Why `@@index([countryId])`:** The query "get all regions for Syria" filters by `countryId`. Without an index, PostgreSQL scans every row. With a B-tree index, it jumps directly to Syria's regions.
 
-#### `AuditLog`
+---
+
+### `City`
+
+**Table:** `cities`
+**Purpose:** A specific city within a region. The `slug` is used in URLs.
+
+```prisma
+model City {
+  id       String  @id @default(cuid())
+  name     String  // "Al Nabik"
+  nameAr   String  // "النبك"
+  slug     String  @unique // "al-nabik" — used in URL: /ar/al-nabik/...
+  regionId String
+  isActive Boolean @default(true) // false = city hidden from public UI
+
+  @@index([regionId])
+  @@index([slug])
+  @@map("cities")
+}
+```
+
+**Why `slug` and not `id` in URLs:**
+
+- `/ar/al-nabik/pharmacies` is readable, shareable, and SEO-friendly
+- `/ar/clx7abc123/pharmacies` reveals nothing to the reader or search engine
+- Adding a new city = one DB row, zero code changes (Mental Model 3 from the architecture guide)
+
+**Why `isActive`:**
+If we launch a second city but it's not ready for public access, `isActive: false` hides it from the public directory without deleting any data.
+
+---
+
+### `Category`
+
+**Table:** `categories`
+**Purpose:** Top-level business classification (e.g. Pharmacies, Restaurants).
+
+```prisma
+model Category {
+  id            String   @id @default(cuid())
+  nameAr        String   // "صيدليات"
+  nameEn        String   // "Pharmacies"
+  slug          String   @unique // "pharmacies"
+  descriptionAr String?
+  descriptionEn String?
+  icon          String?  // Lucide icon name: "pill", "utensils", "scissors"
+  isVisible     Boolean  @default(true)
+  displayOrder  Int      @default(0) // Controls sort order on the homepage
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subcategories Subcategory[]
+  listings      BusinessProfile[]
+
+  @@index([slug])
+  @@index([isVisible, displayOrder])
+  @@map("categories")
+}
+```
+
+**Why `displayOrder`:** Without this field, categories would sort by creation date or ID — neither meaningful to a user. `displayOrder` lets an admin reorder categories (Pharmacies first, General Services last) without changing the data.
+
+**Why `@@index([isVisible, displayOrder])`:** The homepage query is `WHERE isVisible = true ORDER BY displayOrder ASC`. A composite index on both columns covers this query entirely — PostgreSQL never touches the table, only the index.
+
+**Why `icon` stores a Lucide icon name (not a URL):**
+An image URL can break (file deleted, CDN changes). A Lucide icon name like `"pill"` maps to a React component that will always render. Zero hosting cost, zero broken images.
+
+---
+
+### `Subcategory`
+
+**Table:** `subcategories`
+**Purpose:** Optional second level under a Category.
+
+```prisma
+model Subcategory {
+  id           String   @id @default(cuid())
+  nameAr       String
+  nameEn       String
+  slug         String   @unique
+  categoryId   String
+  isVisible    Boolean  @default(true)
+  displayOrder Int      @default(0)
+
+  category Category          @relation(fields: [categoryId], references: [id])
+  listings BusinessProfile[]
+
+  @@index([categoryId])
+  @@map("subcategories")
+}
+```
+
+**Why max two levels (Category → Subcategory):**
+Three-level taxonomies are confusing to users. A business owner should be able to pick their category in two clicks maximum. "Pharmacies > 24-hour Pharmacies" is the right depth. "Pharmacies > Medical > 24-hour > Urban" is not.
+
+---
+
+### `BusinessProfile`
+
+**Table:** `business_profiles`
+**Purpose:** The core entity of the entire application. One row = one business listing.
+
+```prisma
+model BusinessProfile {
+  id            String        @id @default(cuid())
+  nameAr        String
+  nameEn        String?
+  slug          String        @unique
+  descriptionAr String?       @db.Text  // ← @db.Text: unlimited length
+  descriptionEn String?       @db.Text
+  status        ListingStatus @default(DRAFT)
+
+  // Verification
+  isVerified   Boolean   @default(false)
+  verifiedById String?   // Which admin verified this listing
+  verifiedAt   DateTime?
+
+  // Ownership
+  ownerId String
+
+  // Geography
+  cityId    String
+  addressAr String?
+  addressEn String?
+  latitude  Float?    // GPS coordinates for future map feature
+  longitude Float?
+
+  // Taxonomy
+  categoryId    String
+  subcategoryId String?
+
+  // Media
+  coverImageUrl String?
+  logoImageUrl  String?
+
+  // Search — THE most important field for search performance
+  // Concatenation of: nameAr + " " + nameEn + " " + descriptionAr + " " + addressAr
+  // Updated on every save by the updateListingAction server action
+  // WHY denormalized? pg_trgm requires ONE column to index.
+  searchableText String? @db.Text
+
+  viewCount   Int       @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime? // Soft delete — set instead of deleting the row
+  deletedBy   String?   // Audit: who deleted this listing
+
+  @@index([status])
+  @@index([ownerId])
+  @@index([cityId])
+  @@index([categoryId])
+  @@index([slug])
+  @@index([deletedAt])
+  @@index([publishedAt])
+  @@index([status, deletedAt])
+  @@map("business_profiles")
+}
+```
+
+**Why soft delete (`deletedAt` instead of `DELETE`):**
+When a listing is "deleted" we set `deletedAt = now()` instead of removing the row. Reasons:
+
+1. The owner might have a complaint — we need the data to investigate
+2. Audit logs reference `entityId` — a hard delete creates orphaned audit entries
+3. Accidental deletion can be undone in under 30 seconds: `UPDATE SET deletedAt = NULL`
+
+**Why `searchableText` is denormalized:**
+`pg_trgm` GIN indexes work on a single column. We cannot index "nameAr OR descriptionAr OR addressAr" simultaneously. The solution: concatenate all searchable fields into one `searchableText` column and index that. It is updated on every save — a small write cost for a massive read benefit.
+
+**Why `@@index([status, deletedAt])`:**
+The most common query in the public directory is:
+
+```sql
+WHERE status = 'ACTIVE' AND "deletedAt" IS NULL
+```
+
+A composite index on both columns covers this filter in one index scan instead of two.
+
+**The listing state machine:**
+
+```
+DRAFT ──(owner submits)──► ACTIVE ──(admin suspends)──► SUSPENDED
+  ▲                           │                              │
+  │                           │                              │
+  └───(admin restores)────────┴──────────────────────────────┘
+```
+
+---
+
+### `PhoneNumber`
+
+**Table:** `phone_numbers`
+**Purpose:** A business can have multiple phone numbers (landline, mobile, WhatsApp).
+
+```prisma
+model PhoneNumber {
+  id         String   @id @default(cuid())
+  businessId String
+  number     String
+  label      String?  // "واتساب", "موبايل", "هاتف ثابت"
+  isPrimary  Boolean  @default(false)
+
+  business BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("phone_numbers")
+}
+```
+
+**Why `onDelete: Cascade`:** A phone number cannot exist without its business. When a listing is hard-deleted, all its phone numbers should be deleted too. Cascade does this automatically.
+
+**Why separate table (not an array in BusinessProfile):**
+PostgreSQL arrays cannot be individually indexed or queried efficiently. A separate table with an index on `businessId` is faster and more flexible.
+
+---
+
+### `WorkingHours`
+
+**Table:** `working_hours`
+**Purpose:** Opening/closing times for each day of the week.
+
+```prisma
+model WorkingHours {
+  id         String    @id @default(cuid())
+  businessId String
+  dayOfWeek  DayOfWeek // Enum: MONDAY, TUESDAY, ... SUNDAY
+  openTime   String?   // "09:00" — 24-hour format string
+  closeTime  String?   // "22:00"
+  isClosed   Boolean   @default(false) // true = closed this day
+
+  @@unique([businessId, dayOfWeek]) // A business has exactly ONE entry per day
+  @@index([businessId])
+  @@map("working_hours")
+}
+```
+
+**Why `@@unique([businessId, dayOfWeek])`:**
+This prevents a bug where a business could accidentally have two Monday entries. The composite unique constraint means: "for a given business, each day of the week can appear at most once."
+
+**Why store times as `String` ("09:00") and not `DateTime`:**
+`DateTime` includes a date component, which is meaningless for recurring weekly hours. A string like `"09:00"` is simpler, timezone-safe, and trivial to display. No date math needed.
+
+---
+
+### `SocialLink`
+
+**Table:** `social_links`
+**Purpose:** Facebook, Instagram, WhatsApp, website links for a business.
+
+```prisma
+model SocialLink {
+  id         String         @id @default(cuid())
+  businessId String
+  platform   SocialPlatform // Enum: FACEBOOK, INSTAGRAM, WHATSAPP, etc.
+  url        String
+
+  @@index([businessId])
+  @@map("social_links")
+}
+```
+
+**Why an enum for `platform`:**
+An enum prevents garbage data. Without it, someone could store `platform: "facebok"` (typo) or `platform: "WhatsApp"` vs `platform: "whatsapp"` — inconsistent forever. The enum enforces valid values at the DB level.
+
+---
+
+### `MediaFile`
+
+**Table:** `media_files`
+**Purpose:** Photos and videos uploaded for a business listing.
+
+```prisma
+model MediaFile {
+  id                 String      @id @default(cuid())
+  businessId         String
+  type               MediaType   // IMAGE or VIDEO
+  cloudinaryPublicId String      @unique // Cloudinary's internal ID for this file
+  url                String      // CDN delivery URL
+  thumbnailUrl       String?     // Video thumbnail or image thumbnail
+  status             MediaStatus @default(PENDING) // PENDING → APPROVED or REJECTED
+  displayOrder       Int         @default(0)
+  width              Int?
+  height             Int?
+  durationSeconds    Int?        // Videos only
+  sizeBytes          Int?
+  rejectionReason    String?     // Why admin rejected (shown to owner)
+  uploadedById       String
+  approvedAt         DateTime?
+
+  @@index([businessId])
+  @@index([status])
+  @@index([type, status])  // For admin video moderation queue: WHERE type='VIDEO' AND status='PENDING'
+  @@map("media_files")
+}
+```
+
+**Why `cloudinaryPublicId @unique`:**
+Cloudinary uses `public_id` to identify files. This unique constraint prevents the same file from being registered twice. It also gives us a reliable way to delete the file from Cloudinary when the DB row is deleted.
+
+**Media approval flow:**
+
+```
+Upload file → MediaFile created (status: PENDING)
+                    │
+          ┌─────────┴──────────┐
+     IMAGE file            VIDEO file
+          │                    │
+   Auto-approved        Admin must review
+   (status: APPROVED)         │
+                    ┌──────────┴──────────┐
+               APPROVED               REJECTED
+            (visible on         (owner notified,
+             listing)            reason shown)
+```
+
+---
+
+### `ReviewFlag`
+
+**Table:** `review_flags`
+**Purpose:** Citizens can report inaccurate or inappropriate listings.
+
+```prisma
+model ReviewFlag {
+  id              String     @id @default(cuid())
+  businessId      String
+  reportedById    String?    // NULL = anonymous report (allowed)
+  reason          String
+  details         String?    @db.Text
+  status          FlagStatus @default(PENDING) // PENDING → RESOLVED or IGNORED
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolutionNotes String?
+
+  @@index([businessId])
+  @@index([status])
+  @@map("review_flags")
+}
+```
+
+**Why `reportedById` is nullable:**
+We allow anonymous reports. A citizen who spots wrong information should not need to create an account to report it. `reportedById: null` = anonymous.
+
+---
+
+### `AuditLog`
+
+**Table:** `audit_logs`
+**Purpose:** Immutable record of every significant action in the system.
 
 ```prisma
 model AuditLog {
-  action      AuditAction  // USER_CREATED, EMAIL_VERIFIED, PASSWORD_RESET...
-  entityType  String        // "User"
-  entityId    String        // the user's cuid
-  actorId     String?       // who performed the action
-  ipAddress   String?       // for security review
+  id             String      @id @default(cuid())
+  actorId        String?     // NULL = system action (no logged-in user)
+  actorEmail     String?     // Denormalized — email AT TIME OF ACTION
+  actorRole      Role?       // Denormalized — role AT TIME OF ACTION
+  action         AuditAction // What happened (enum)
+  entityType     String      // "BusinessProfile", "User", "Category"
+  entityId       String      // The ID of the affected row
+  previousValues Json?       // State BEFORE the change
+  newValues      Json?       // State AFTER the change
+  ipAddress      String?
+  createdAt      DateTime    @default(now()) // Append-only: no updatedAt
+
+  actor User? @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 ```
 
-Built from day one so every Phase 1 event is traceable. Retroactively adding
-audit logs is painful — you miss all historical events.
+**Why `actorEmail` and `actorRole` are denormalized (duplicated):**
+If a user is deleted, their User row is gone. But we still need the audit log to be readable — "Admin ahmed@... suspended listing X at 14:32." If we only stored `actorId`, the email would be unresolvable after deletion. Denormalizing captures the email **at the time of the action**, permanently.
+
+**Why `onDelete: SetNull` (not Cascade) on the actor relation:**
+If we used `Cascade`, deleting a user would delete all their audit logs — destroying the entire audit trail for that user. `SetNull` keeps every audit log but sets `actorId = NULL`. The log survives; the user does not.
+
+**Why `previousValues` and `newValues` are `Json`:**
+The shape of what changed varies by entity. A listing update might change `nameAr`. A user update might change `role`. Using `Json` (PostgreSQL JSONB) means we never need a migration when we start auditing new fields.
 
 ---
 
-### Step 3 — Environment Variables
+### `Notification`
 
-```bash
-NEXTAUTH_SECRET=<openssl rand -base64 32>  # encrypts JWT cookies
-AUTH_URL=http://localhost:3000              # base URL for OAuth callbacks
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-RESEND_API_KEY=...
-RESEND_FROM_EMAIL=noreply@yourdomain.com
+**Table:** `notifications`
+**Purpose:** In-app notification center for business owners.
+
+```prisma
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType // LISTING_PUBLISHED, VIDEO_REJECTED, etc.
+  title     String
+  message   String           @db.Text
+  isRead    Boolean          @default(false)
+  data      Json?            // { listingId: "...", listingName: "..." }
+  sentAt    DateTime?        // NULL = email not sent yet
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])   // For unread badge: COUNT WHERE userId=X AND isRead=false
+  @@index([userId, createdAt]) // For notification list: ORDER BY createdAt DESC
+  @@map("notifications")
+}
 ```
 
-`NEXTAUTH_SECRET` is critical: it is the encryption key for all JWT cookies.
-If it changes in production, all existing sessions are invalidated. If it
-leaks, anyone can forge a valid session for any user.
+**Why `@@index([userId, isRead])`:**
+The notification bell badge runs a `COUNT` query on every page load:
 
-**Google OAuth Authorized Redirect URI** (set in Google Cloud Console):
-http://localhost:3000/api/v1/auth/callback/google (dev)
-https://yourdomain.com/api/v1/auth/callback/google (prod)
+```sql
+SELECT COUNT(*) FROM notifications WHERE "userId" = '...' AND "isRead" = false
+```
 
-text
+Without this composite index, this query scans every notification for every page load for every user. With the index, it is O(1).
 
 ---
 
-### Step 4 — TypeScript Type Augmentation
+### `PlatformSetting`
+
+**Table:** `platform_settings`
+**Purpose:** Runtime configuration that admins can change without a code deploy.
+
+```prisma
+model PlatformSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique // "max_photos", "max_videos", etc.
+  value       String            // Always stored as string, parsed on read
+  description String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+  @@map("platform_settings")
+}
+```
+
+**Why every value is a `String`:**
+A single type for all settings keeps the table simple. Callers parse as needed:
+
+- `getSettingNumber("max_photos", 10)` → parses to `Int`
+- `getSettingBoolean("maintenance_mode", false)` → parses to `Boolean`
+
+**The 7 default settings:**
+
+| Key                          | Value   | Used By                      |
+| ---------------------------- | ------- | ---------------------------- |
+| `max_photos`                 | `10`    | Upload handler, listing form |
+| `max_videos`                 | `3`     | Upload handler, listing form |
+| `max_listings_per_owner`     | `3`     | createListingAction          |
+| `max_video_size_mb`          | `100`   | Upload validation            |
+| `max_video_duration_seconds` | `300`   | Upload validation (5 min)    |
+| `pdf_cache_ttl_seconds`      | `21600` | PDF export (6 hours)         |
+| `listing_rate_limit_per_day` | `1`     | Rate limiter                 |
+
+---
+
+## 6. Relation Map — How Tables Connect
+
+### One-to-Many Relations
+
+```
+Country  ──(1:many)──►  Region  ──(1:many)──►  City  ──(1:many)──►  BusinessProfile
+                                                                            │
+                                              Category  ──(1:many)──►  ────┤
+                                                   │                       │
+                                            Subcategory ──(1:many)──►  ────┤
+                                                                            │
+                                                 User  ─[owner]──(1:many)──┤
+                                                                            │
+                                              ┌─────────────────────────── ┤
+                                              │                             │
+                                        PhoneNumber                   WorkingHours
+                                        SocialLink                    MediaFile
+                                        ReviewFlag
+```
+
+### Many-to-One Relations (Foreign Keys)
+
+| Child Table         | Foreign Key     | Points To              |
+| ------------------- | --------------- | ---------------------- |
+| `regions`           | `countryId`     | `countries.id`         |
+| `cities`            | `regionId`      | `regions.id`           |
+| `business_profiles` | `ownerId`       | `users.id`             |
+| `business_profiles` | `cityId`        | `cities.id`            |
+| `business_profiles` | `categoryId`    | `categories.id`        |
+| `business_profiles` | `subcategoryId` | `subcategories.id`     |
+| `business_profiles` | `verifiedById`  | `users.id`             |
+| `phone_numbers`     | `businessId`    | `business_profiles.id` |
+| `working_hours`     | `businessId`    | `business_profiles.id` |
+| `social_links`      | `businessId`    | `business_profiles.id` |
+| `media_files`       | `businessId`    | `business_profiles.id` |
+| `media_files`       | `uploadedById`  | `users.id`             |
+| `review_flags`      | `businessId`    | `business_profiles.id` |
+| `review_flags`      | `reportedById`  | `users.id` (nullable)  |
+| `review_flags`      | `resolvedById`  | `users.id` (nullable)  |
+| `audit_logs`        | `actorId`       | `users.id` (nullable)  |
+| `notifications`     | `userId`        | `users.id`             |
+| `platform_settings` | `updatedById`   | `users.id` (nullable)  |
+
+---
+
+## 7. PostgreSQL Extensions & GIN Indexes
+
+### Why `pg_trgm`?
+
+A **trigram** is any 3-character sequence within a word.
+The word `محمد` produces the trigrams: `مح`, `حم`, `محم`, `حمد`, `مد`, `محمد`.
+
+When you search for `محم`, PostgreSQL compares your query's trigrams against the indexed trigrams and returns matches by similarity. This means:
+
+- **Partial matches work:** `محم` finds `محمد`
+- **Typo tolerance is free:** `مخمد` (wrong letter) still finds `محمد` (similarity score > threshold)
+- **Arabic works perfectly:** trigrams are character-based — no language dictionary needed
+
+**Without `pg_trgm`:**
+
+```sql
+-- Full table scan — O(n) — gets slower as listings grow
+SELECT * FROM business_profiles WHERE "searchableText" ILIKE '%محمد%'
+-- At 10,000 rows: 40ms. At 100,000 rows: 400ms. Unusable.
+```
+
+**With `pg_trgm` + GIN index:**
+
+```sql
+-- Index scan — O(log n) — constant time regardless of table size
+SELECT * FROM business_profiles WHERE "searchableText" % 'محمد'
+-- At 10,000 rows: 1ms. At 100,000 rows: 1ms. Always fast.
+```
+
+### Why `unaccent`?
+
+Enables diacritic-insensitive search. A user typing `محمد` will find listings stored as `محمّد` (with shadda). Without unaccent, these are treated as different strings.
+
+### Why GIN over GiST?
+
+Two index types support `pg_trgm`:
+
+| Index    | Read speed | Write speed | Best for              |
+| -------- | ---------- | ----------- | --------------------- |
+| **GIN**  | ⚡ Faster  | 🐢 Slower   | Read-heavy workloads  |
+| **GiST** | 🐢 Slower  | ⚡ Faster   | Write-heavy workloads |
+
+A business directory is read 100× more than it is written to. A listing is created once and searched thousands of times. **GIN is the correct choice.**
+
+### The Migration SQL
+
+```sql
+-- File: prisma/migrations/[timestamp]_add_search_extensions/migration.sql
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- GIN index on the full searchable text (all fields concatenated)
+CREATE INDEX IF NOT EXISTS idx_bp_search_gin
+  ON business_profiles
+  USING GIN ("searchableText" gin_trgm_ops);
+
+-- GIN index on Arabic name only (for autocomplete / name-only searches)
+CREATE INDEX IF NOT EXISTS idx_bp_name_ar_gin
+  ON business_profiles
+  USING GIN ("nameAr" gin_trgm_ops);
+
+-- Partial B-tree index for the public directory query
+-- WHERE status = 'ACTIVE' AND "deletedAt" IS NULL ORDER BY "publishedAt" DESC
+CREATE INDEX IF NOT EXISTS idx_bp_active_published
+  ON business_profiles (status, "deletedAt", "publishedAt" DESC)
+  WHERE "deletedAt" IS NULL;
+```
+
+> ⚠️ **Column name casing:** Prisma stores camelCase field names as quoted identifiers in PostgreSQL.
+> `searchableText` in Prisma → `"searchableText"` in SQL (with quotes, case-sensitive).
+> `searchable_text` (no quotes, snake_case) would fail — the column does not exist.
+
+---
+
+## 8. Audit Log System
+
+**File:** `src/lib/audit.ts`
+
+### The `writeAuditLog()` Function
 
 ```typescript
-// src/types/next-auth.d.ts
-declare module "next-auth" {
-  interface Session {
-    user: {
-      id: string; // not in DefaultSession — we add it
-      role: Role;
-      emailVerified: Date | null;
-    } & DefaultSession["user"];
-  }
-}
-
-declare module "next-auth/jwt" {
-  interface JWT {
-    id: string;
-    role: Role;
-    emailVerified: Date | null;
-  }
+export function writeAuditLog(params: AuditParams): void {
+  // Deliberately NOT awaited — fire-and-forget
+  prisma.auditLog.create({ data: params }).catch((err) => {
+    console.error("[AuditLog] Write failed:", err);
+  });
 }
 ```
 
-Auth.js's default `Session` type does not include `id`, `role`, or
-`emailVerified`. Without this file, TypeScript errors on every
-`session.user.id` access throughout the codebase.
+**Why `void` return type (not `Promise<void>`):**
+The function is intentionally not async. Callers do NOT await it. Audit logging must never block the main operation. If the audit write fails, the user's action still completes successfully. Losing one audit entry is acceptable; blocking a business owner from saving their listing is not.
 
-**One `declare module "next-auth"` block only.** Two blocks in the same file
-causes TypeScript to merge them unpredictably.
+**Usage pattern in server actions:**
+
+```typescript
+// In updateListingAction:
+await prisma.businessProfile.update({ where: { id }, data: updates });
+
+// After the update succeeds, log it — fire and forget
+writeAuditLog({
+  actorId: session.user.id,
+  actorEmail: session.user.email,
+  actorRole: session.user.role,
+  action: AuditAction.LISTING_UPDATED,
+  entityType: "BusinessProfile",
+  entityId: id,
+  previousValues: prev,
+  newValues: next,
+});
+
+return { success: true }; // Does NOT wait for audit log
+```
+
+### The `buildDiff()` Helper
+
+```typescript
+export function buildDiff<T>(before: T, updates: Partial<T>) {
+  // Returns only the fields that actually changed
+  // Example:
+  //   before:  { nameAr: "Old", status: "DRAFT", viewCount: 0 }
+  //   updates: { nameAr: "New", status: "ACTIVE" }
+  //   result:  { prev: { nameAr: "Old", status: "DRAFT" },
+  //              next: { nameAr: "New", status: "ACTIVE" } }
+}
+```
+
+This keeps audit logs small and readable. A diff of 2 changed fields is stored instead of the entire 20-field object.
 
 ---
 
-### Step 5 — Auth.js Configuration
+## 9. Platform Settings Cache
 
-`src/lib/auth.ts` is the single source of truth for all auth behavior.
+**File:** `src/features/platform/settings.ts`
+
+### Cache Flow
+
+```
+Request arrives
+      │
+      ▼
+getSetting("max_photos")
+      │
+      ├─► Check Redis: key "setting:max_photos"
+      │         │
+      │    ┌────┴─────┐
+      │  HIT (fast)  MISS (cold start or TTL expired)
+      │    │             │
+      │    │             ▼
+      │    │     Query PostgreSQL
+      │    │     platform_settings WHERE key = "max_photos"
+      │    │             │
+      │    │             ▼
+      │    │     Store in Redis with TTL=300s
+      │    │             │
+      └────┴─────────────┘
+                  │
+                  ▼
+           Return "10"
+```
+
+### The Type Coercion Bug (Fixed)
+
+Upstash Redis automatically deserializes JSON values on read. If you store the string `"10"`, Redis returns the **number** `10`. Without coercion, `parseInt("10")` works but `"10" === "10"` would become `10 === "10"` → `false`.
 
 ```typescript
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
-  basePath: "/api/v1/auth",
-  pages: { signIn: "/ar/sign-in" },
-  providers: [ Google(...), Credentials(...) ],
-  callbacks: { signIn, jwt, session }
+// ❌ Bug: cached could be number 10, not string "10"
+const cached = await redis.get<string>(cacheKey);
+if (cached !== null) return cached;
+
+// ✅ Fixed: always coerce to string on read
+const cached = await redis.get(cacheKey);
+if (cached !== null && cached !== undefined) return String(cached);
+```
+
+### SETTING_KEYS Constants
+
+```typescript
+export const SETTING_KEYS = {
+  MAX_PHOTOS: "max_photos",
+  MAX_VIDEOS: "max_videos",
+  MAX_LISTINGS_PER_OWNER: "max_listings_per_owner",
+  // ...
+} as const;
+```
+
+WHY: Prevents typos. `getSetting(SETTING_KEYS.MAX_PHOTOS)` catches `"max_photo"` (missing s) at compile time. `getSetting("max_photos")` only catches it at runtime (a bug in production).
+
+---
+
+## 10. Seed Data
+
+**File:** `prisma/seed.ts`
+
+### What Gets Seeded
+
+**Geography:**
+
+```
+Syria (SY)
+  └── ريف دمشق (Damascus Countryside)
+        └── النبك — slug: "al-nabik"
+```
+
+**10 Categories:**
+
+| Arabic       | English            | Slug               | Icon            |
+| ------------ | ------------------ | ------------------ | --------------- |
+| صيدليات      | Pharmacies         | pharmacies         | pill            |
+| عيادات       | Clinics            | clinics            | stethoscope     |
+| مطاعم        | Restaurants        | restaurants        | utensils        |
+| محلات بقالة  | Groceries          | groceries          | shopping-basket |
+| ورش ميكانيك  | Auto Repair        | auto-repair        | wrench          |
+| مخابز        | Bakeries           | bakeries           | wheat           |
+| صالونات      | Salons             | salons             | scissors        |
+| محلات ملابس  | Clothing           | clothing           | shirt           |
+| أدوات بناء   | Building Materials | building-materials | hard-hat        |
+| خدمات متنوعة | General Services   | general-services   | briefcase       |
+
+**Super Admin:**
+
+- Email: `admin@city-directory.local`
+- Password: `Admin@123456`
+- Role: `SUPER_ADMIN`
+- `emailVerified`: pre-set to now (no email verification flow needed)
+
+### Why Seed Uses `upsert` (Not `create`)
+
+```typescript
+await prisma.country.upsert({
+  where: { code: 'SY' },
+  update: {},     // Do nothing if already exists
+  create: { ... } // Only create if missing
 })
 ```
 
-#### `basePath: "/api/v1/auth"`
+`upsert` makes the seed **idempotent** — running it 10 times produces the same result as running it once. This is critical because:
 
-Moves all Auth.js routes under our versioned API path:
+- `migrate reset` re-runs the seed automatically
+- A developer might run `prisma db seed` twice by mistake
+- `create` would throw a unique constraint error on the second run; `upsert` silently skips
 
-- Sign-in: `POST /api/v1/auth/callback/credentials`
-- Google callback: `GET /api/v1/auth/callback/google`
-- Session: `GET /api/v1/auth/session`
+---
 
-#### Credentials Provider — `authorize()`
+## 11. Every Command Used in Phase 2
 
-```typescript
-async authorize(credentials) {
-  const parsed = SignInSchema.safeParse(credentials)
-  if (!parsed.success) return null        // 1. Validate input shape
+```bash
+# Install ts-node (needed to run prisma/seed.ts directly)
+pnpm add -D ts-node
 
-  const user = await prisma.user.findUnique({
-    where: { email: parsed.data.email, deletedAt: null }
-  })
+# Apply schema changes as a new named migration
+pnpm exec prisma migrate dev --name add_all_domain_models
 
-  if (!user || !user.passwordHash) return null  // 2. Exists + has password
+# Create an EMPTY migration file for hand-written SQL (--create-only = don't apply yet)
+pnpm exec prisma migrate dev --name add_search_extensions --create-only
 
-  const isValid = await verifyPassword(parsed.data.password, user.passwordHash)
-  if (!isValid) return null               // 3. Password matches
+# Apply all pending migrations (including the hand-edited SQL file)
+pnpm exec prisma migrate dev
 
-  return user                             // 4. Auth.js creates the JWT
+# Run the seed script (reads "prisma.seed" from package.json)
+pnpm exec prisma db seed
+
+# Open visual DB browser at http://localhost:5555
+pnpm exec prisma studio
+
+# Wipe the database and replay all migrations from scratch (dev only)
+pnpm exec prisma migrate reset
+
+# Check migration status — shows which are applied vs pending
+pnpm exec prisma migrate status
+
+# Regenerate Prisma Client after schema changes
+pnpm exec prisma generate
+```
+
+### Why `pnpm exec prisma` and NOT `pnpx prisma`
+
+| Command            | What it uses                                    | Risk                              |
+| ------------------ | ----------------------------------------------- | --------------------------------- |
+| `pnpm exec prisma` | Your installed version in `node_modules` (v6.x) | ✅ Safe                           |
+| `pnpx prisma`      | Downloads LATEST from internet                  | ❌ Would get v7, breaking changes |
+
+This project deliberately uses Prisma 6. `pnpx` would silently upgrade to v7 which has a completely different API.
+
+---
+
+## 12. Mistakes We Hit & How We Fixed Them
+
+### Mistake 1 — AuditAction enum values removed
+
+**What happened:** Phase 2 schema removed `USER_CREATED`, `EMAIL_VERIFIED`, `PASSWORD_RESET` from the `AuditAction` enum. PostgreSQL **cannot remove enum values** in a standard transaction — it aborts the entire migration.
+
+**Fix:** Keep all Phase 1 enum values. Only ADD new values, never remove.
+
+```prisma
+// ✅ Correct — Phase 1 values kept, Phase 2 values added below
+enum AuditAction {
+  USER_CREATED    // Phase 1 — do not remove
+  EMAIL_VERIFIED  // Phase 1 — do not remove
+  PASSWORD_RESET  // Phase 1 — do not remove
+  LISTING_CREATED // Phase 2 addition
+  // ...
 }
 ```
 
-**Why `null` for both "user not found" AND "wrong password"?**
-Returning different errors leaks information: an attacker can probe which
-emails are registered. `null` for both cases prevents this enumeration.
+### Mistake 2 — Broken migration folder left on disk after error
 
-#### `signIn` Callback
+**What happened:** A failed migration left a folder in `prisma/migrations/`. When `migrate reset` was run, it tried to replay the broken SQL and failed again.
 
-```typescript
-async signIn({ user, account }) {
-  if (account?.provider === "google" && user.id) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: new Date() }  // Google guarantees verified emails
-    })
-  }
-  return true
-}
+**Fix:** Delete the broken migration folder before running `migrate reset`:
+
+```bash
+rm -rf prisma/migrations/[broken_timestamp]_migration_name
+pnpm exec prisma migrate reset
 ```
 
-Google verifies emails before issuing OAuth tokens. We mark the user's email
-as verified immediately — no email link required for Google users.
+### Mistake 3 — Raw SQL used snake_case column names
 
-#### `jwt` Callback
+**What happened:** GIN index SQL used `searchable_text` but Prisma created the column as `"searchableText"` (camelCase, quoted).
 
-```typescript
-async jwt({ token, user, account }) {
-  if (user) {
-    // First sign-in: embed custom fields into the JWT
-    token.id = user.id!
-    token.role = user.role
-    token.emailVerified = user.emailVerified
-  }
-  if (account?.provider === "google") {
-    // jwt() runs before the DB write from signIn() callback completes
-    // Set it directly so the token has the correct value immediately
-    token.emailVerified = new Date()
-  }
-  return token
-}
+**Fix:** Always use quoted camelCase in raw SQL:
+
+```sql
+-- ❌ Wrong
+USING GIN (searchable_text gin_trgm_ops)
+
+-- ✅ Correct
+USING GIN ("searchableText" gin_trgm_ops)
 ```
 
-**Why set `emailVerified` in both `signIn` and `jwt` callbacks?**
-The `signIn` callback updates the DB row (persistent fix). The `jwt` callback
-sets it in the token (immediate fix for the current session). Without the
-`jwt` fix, the user is redirected to `/verify-email` on every Google login
-because the token was built before the DB write completed.
+### Mistake 4 — Redis returns number, not string
 
-#### `session` Callback
+**What happened:** Upstash auto-deserializes JSON. Storing `"10"` returns `10` (number). The `getSetting()` function returned a number where callers expected a string.
+
+**Fix:** Always coerce Redis reads to string:
 
 ```typescript
-session({ session, token }) {
-  session.user.id = token.id
-  session.user.role = token.role
-  session.user.emailVerified = token.emailVerified
-    ? new Date(token.emailVerified) : null
-  return session
-}
-```
-
-Shapes what `useSession()` and `auth()` return. Without this, `session.user`
-only contains `name`, `email`, and `image` — our custom fields are missing.
-
----
-
-### Step 6 — Route Handler
-
-```typescript
-// src/app/api/v1/auth/[...nextauth]/route.ts
-import { handlers } from "@/lib/auth";
-export const { GET, POST } = handlers;
-```
-
-The `[...nextauth]` catch-all captures every Auth.js HTTP endpoint. Two lines
-of code — Auth.js handles all the routing internally.
-
----
-
-### Step 7 — Security Utilities
-
-```typescript
-// src/features/auth/utils.ts
-
-// 12 rounds ≈ 300ms — slow enough to deter brute force, fast for users
-export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, 12);
-}
-
-// bcrypt.compare uses constant-time comparison internally
-// Prevents timing attacks (measuring response time to count matched chars)
-export async function verifyPassword(
-  plain: string,
-  hash: string,
-): Promise<boolean> {
-  return bcrypt.compare(plain, hash);
-}
-
-// 32 bytes = 256 bits of entropy = 1 in 2^256 chance of guessing
-export function generateSecureToken(): string {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-// Store SHA-256 hash only — DB breach cannot be used to verify emails
-export function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+const cached = await redis.get(cacheKey);
+if (cached !== null && cached !== undefined) return String(cached);
 ```
 
 ---
 
-### Step 8 — Rate Limiting
+## 13. Phase 2 Done Criteria
 
-```typescript
-// 5 login attempts per 15 minutes per identifier
-export const authRateLimit = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(5, "15 m"),
-  prefix: "rl:auth",
-});
-
-// 3 password reset attempts per hour (more restrictive — prevents email flooding)
-export const passwordResetRateLimit = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(3, "1 h"),
-  prefix: "rl:reset",
-});
 ```
-
-**Why sliding window over fixed window?**
-Fixed window: attacker sends 5 requests at 11:59:55, waits 5 seconds, sends
-5 more at 12:00:01 — 10 requests in 10 seconds while "within the limit" on
-each window boundary.
-
-Sliding window: counts all requests in the last N seconds from NOW. No
-boundary exploit is possible.
-
-**Why Upstash Redis?**
-Rate limit state must be shared across all server instances. An in-memory
-counter resets on every deployment and does not work across multiple servers.
-
-**Two identifiers checked on sign-in:**
-
-- By email → prevents targeting one account from many IPs
-- By IP → prevents one IP from trying many different accounts
+✅  pnpm exec prisma studio shows all tables populated with seed data
+✅  pg_trgm extension is active
+      SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'; → 1 row
+✅  GIN index exists on business_profiles."searchableText"
+      SELECT indexname FROM pg_indexes WHERE tablename = 'business_profiles';
+✅  getSetting("max_photos") returns "10" from Redis on second call
+✅  pnpm type-check passes with zero errors
+✅  pnpm build passes with zero errors
+```
 
 ---
 
-### Step 9 — Zod Schemas
-
-```typescript
-export const SignUpSchema = z.object({
-  name: z.string().min(2, "validation.nameTooShort").max(100),
-  email: z.string().email("validation.invalidEmail"),
-  password: z
-    .string()
-    .min(8, "validation.passwordTooShort")
-    .regex(/[A-Z]/, "validation.passwordNeedsUppercase")
-    .regex(/[0-9]/, "validation.passwordNeedsNumber"),
-});
-```
-
-**Error messages are translation keys, not raw strings.**
-The message `"validation.nameTooShort"` is looked up via `t(errors.name.message)`
-in the component, which returns the correct Arabic or English string. Adding a
-third language requires only a new JSON file — zero code changes.
-
-**Schemas are used in two places:**
-
-1. **Client side** — React Hook Form validates on input before submission
-2. **Server side** — Server Actions re-validate before any DB operation
-
-Never trust client-side validation alone. A user can bypass browser validation
-by sending raw HTTP requests directly to the server.
-
----
-
-### Step 10 — Audit Logging
-
-```typescript
-// src/lib/audit.ts
-export function writeAuditLog(params: AuditParams): void {
-  prisma.auditLog
-    .create({ data: params })
-    .catch((err) => console.error("[AuditLog] write failed:", err));
-  // No await — fire and forget
-}
-```
-
-**Why fire-and-forget?**
-Audit log failure must never block the main operation. If the log write fails
-(DB timeout, network issue), the user should still complete sign-up, verify
-their email, or reset their password. Logging is observability — it must not
-become a single point of failure.
-
-**Events logged in Phase 1:**
-| Event | When |
-|---|---|
-| `USER_CREATED` | Successful sign-up |
-| `EMAIL_VERIFIED` | User clicks verification link |
-| `PASSWORD_RESET` | Password successfully changed |
-| `USER_DELETED` | Account soft-deleted |
-
----
-
-### Step 11 — Email Sending
-
-```typescript
-export async function sendVerificationEmail(to, name, rawToken) {
-  const link = `${APP_URL}/ar/verify-email?token=${rawToken}`;
-  await resend.emails.send({ from: FROM, to, subject: "...", html: `...` });
-}
-```
-
-**The `rawToken` goes in the email — never the `tokenHash`.**
-
-The verification flow:
-
-1. User clicks `?token=abc123raw` in their email
-2. `verifyEmailAction("abc123raw")` is called
-3. Server computes `SHA-256("abc123raw")` → `"hashedvalue"`
-4. `SELECT * FROM EmailVerificationToken WHERE tokenHash = "hashedvalue"`
-5. Record found → email verified ✅
-
-If the DB is breached and an attacker gets `"hashedvalue"`, they cannot reverse
-SHA-256 to get `"abc123raw"`. The raw token exists only in the user's inbox.
-
-**Why fire-and-forget for email sending?**
-Email delivery can take 100–500ms. The user should not wait for a network
-call to an external API. The user is already in the DB — if the email fails,
-they can request a new verification email (Phase 2 feature).
-
----
-
-### Step 12 — Server Actions
-
-Server Actions are Next.js App Router's mechanism for running server-side code
-called directly from client components, without building a REST endpoint. They
-run exclusively on the server — never in the browser.
-
-#### `signUpAction` — Full flow
-
-SignUpSchema.safeParse() → validate input shape and rules
-
-checkRateLimit() → 5 attempts per 15min per IP
-
-prisma.user.findUnique() → check email availability
-
-hashPassword() → bcrypt 12 rounds
-
-prisma.user.create() → write user to DB
-
-generateSecureToken() → 256-bit random raw token
-
-hashToken() → SHA-256 hash
-
-prisma.emailVerificationToken.create() → store hash + expiry
-
-sendVerificationEmail() → fire-and-forget
-
-writeAuditLog() → fire-and-forget
-
-return { success: true } → do NOT sign them in
-
-text
-
-**Why not sign in immediately after sign-up?**
-If we signed users in without email verification, anyone could register
-`ceo@bigcompany.com` (an email they do not own) and immediately access the
-account. Email verification proves control of the inbox.
-
-#### `verifyEmailAction` — Atomicity matters
-
-```typescript
-await prisma.$transaction([
-  prisma.user.update({ data: { emailVerified: new Date() } }),
-  prisma.emailVerificationToken.update({ data: { usedAt: new Date() } }),
-]);
-```
-
-**Why `$transaction`?** If the first update succeeds but the second fails,
-the token could be reused — the DB would have `emailVerified` set but
-`usedAt` still null. Wrapping both in a transaction ensures they either both
-succeed or both fail (atomicity).
-
-#### `forgotPasswordAction` — Enumeration prevention
-
-```typescript
-const user = await prisma.user.findUnique({ where: { email } });
-
-// CRITICAL: same response whether user exists or not
-if (!user) return { success: true };
-
-// Only reaches here if user exists
-```
-
-An attacker probing for registered emails cannot distinguish between
-"email not registered" and "email registered, reset sent" — both return
-`{ success: true }` with identical timing.
-
-#### `resetPasswordAction` — Force re-login
-
-```typescript
-await prisma.$transaction([
-  prisma.user.update({
-    data: { passwordHash: await hashPassword(newPassword) },
-  }),
-  prisma.passwordResetToken.update({ data: { usedAt: new Date() } }),
-  prisma.session.deleteMany({ where: { userId: record.userId } }), // force re-login
-]);
-```
-
-Deleting all sessions for the user means: if their account was compromised and
-the attacker is currently logged in, changing the password kicks them out.
-Note: with JWT strategy, existing JWT cookies are not immediately invalidated
-(they are self-contained). Phase 2 addresses this with `passwordChangedAt`.
-
-#### `deleteAccountAction` — GDPR-safe anonymization
-
-```typescript
-prisma.user.update({
-  data: {
-    deletedAt: new Date(),
-    email: `deleted_${userId}@deleted.local`, // PII removed
-    name: "Deleted User",
-    passwordHash: null,
-    image: null,
-  },
-});
-```
-
-**Why anonymize instead of hard-delete?**
-Audit logs reference the user's ID via a foreign key. Hard-deleting the user
-breaks referential integrity. Anonymization removes all PII (complying with
-GDPR "right to be forgotten") while keeping the audit trail intact.
-
----
-
-### Step 13 — Middleware
-
-```typescript
-// src/middleware.ts
-const intlMiddleware = createMiddleware(routing);
-export default intlMiddleware; // next-intl only — no auth check
-
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-};
-```
-
-**Why no auth check in middleware?**
-
-The middleware runs on Vercel's **Edge Runtime** — a lightweight V8 sandbox
-without Node.js APIs:
-
-- No Prisma (no DB queries)
-- No bcrypt (no native modules)
-- No `fs`, `path`, or Node.js built-ins
-
-Auth.js v5 provides an edge-safe `auth()` via the two-file pattern
-(`auth.config.ts` + `auth.ts`), but combining it with next-intl's middleware
-caused locale detection failures in this project.
-
-**The solution: protect routes in Server Component layouts.**
-
-```typescript
-// src/app/[locale]/(dashboard)/layout.tsx — runs in Node.js, full DB access
-export default async function DashboardLayout({ ... }) {
-  const session = await auth()             // decrypt JWT — no DB query
-
-  if (!session) redirect(`/${locale}/sign-in`)
-  if (!session.user.emailVerified) redirect(`/${locale}/verify-email`)
-
-  return <>{children}</>
-}
-```
-
-Middleware handles routing and locale. Layouts handle authorization for their
-route group. Each layer does exactly one job.
-
----
-
-### Step 14 — Auth Pages (UI)
-
-#### The `signIn()` call — client vs. server
-
-This was the most critical architectural decision of the entire phase.
-
-**❌ Server Action approach (does not work correctly):**
-
-```typescript
-export async function signInAction(data) {
-  await signIn("credentials", { ...data, redirectTo: "/dashboard" });
-}
-```
-
-When called from a Server Action, Auth.js can lose the HTTP context needed
-to properly set cookies and encode the session.
-
-**✅ Client-side approach (correct):**
-
-```typescript
-// In the page component:
-const result = await signIn("credentials", {
-  email: data.email,
-  password: data.password,
-  redirect: false,
-});
-window.location.href = `/${locale}/dashboard`;
-```
-
-`signIn()` from `next-auth/react` makes a real HTTP POST to
-`/api/v1/auth/callback/credentials`. The route handler runs `authorize()`,
-the `jwt` callback builds the token, and `Set-Cookie` is sent in the response.
-
-**Why `window.location.href` instead of `router.push()`?**
-`router.push()` is a client-side navigation — it does not send a new request
-to the server, so Server Components do not re-read the freshly set cookie.
-`window.location.href` triggers a full page load, which sends the cookie to
-the server where `auth()` reads it correctly.
-
-#### Direction handling (`dir` attribute)
-
-```html
-<!-- Page wrapper: RTL for Arabic content -->
-<div dir="rtl">
-  <!-- Email input: always LTR — email addresses are latin characters -->
-  <input type="email" dir="ltr" />
-
-  <!-- Password input: always LTR — passwords contain latin chars -->
-  <input type="password" dir="ltr" />
-</div>
-```
-
-If email/password inputs render RTL, the `@` symbol and cursor position appear
-on the wrong side — confusing for users.
-
----
-
-### Step 15 — i18n Translation Keys
-
-**Server Actions return translation keys, not translated strings:**
-
-```typescript
-// actions.ts:
-return { success: false, error: "emailTaken" }
-
-// Page component:
-const t = useTranslations("auth")
-{serverError && <p>{t(serverError)}</p>}
-// Arabic: "هذا البريد الإلكتروني مسجل مسبقاً."
-// English: "This email is already registered."
-```
-
-**Zod schemas use translation keys as error messages:**
-
-```typescript
-// schemas.ts:
-z.string().min(2, "validation.nameTooShort")
-
-// Page component:
-{errors.name && <p>{t(errors.name.message)}</p>}
-```
-
-**Result:** Adding French (`messages/fr.json`) requires zero changes to
-schemas, actions, or components. Only the JSON translation file changes.
-
----
-
-## 6. Critical Bugs Fixed During Implementation
-
-### Bug 1 — `strategy:"database"` + Credentials = session always null
-
-**Symptom:** `authorize()` returned user correctly, but `auth()` in layouts
-returned `null`. Users were permanently stuck on sign-in.
-
-**Root cause:** Auth.js v5 beta does not call `adapter.createSession()` for
-the Credentials provider. It writes a JWT cookie regardless of the strategy
-setting. `auth()` then queries `SELECT FROM Session WHERE token = <jwt>` —
-no row exists.
-
-**Fix:** Switch to `strategy: "jwt"`. PrismaAdapter kept for Google OAuth.
-
----
-
-### Bug 2 — Google sign-in redirected to `/verify-email`
-
-**Symptom:** After successful Google OAuth, user was redirected to
-`/verify-email` instead of `/dashboard`.
-
-**Root cause 1:** `jwt()` callback read `user.emailVerified` from the DB
-record, which was still `null` because the `signIn()` callback DB write
-had not yet completed when `jwt()` ran.
-
-**Root cause 2:** DB row had `emailVerified: null` for all Google users.
-
-**Fix:** Set `token.emailVerified = new Date()` directly in `jwt()` callback
-when `account.provider === "google"`. Also update the DB row in `signIn()`
-callback for persistence.
-
----
-
-### Bug 3 — `JWEInvalid: Invalid Compact JWE`
-
-**Symptom:** Console error on every page load after switching from `database`
-to `jwt` strategy.
-
-**Root cause:** Old `authjs.session-token` cookie (opaque DB token format) was
-still in the browser. Auth.js tried to decrypt it as a JWE and failed.
-
-**Fix:** Manually clear `authjs.session-token`, `authjs.csrf-token`, and
-`authjs.callback-url` cookies in DevTools → Application → Cookies. New cookies
-will be written in correct JWE format on next sign-in.
-
----
-
-### Bug 4 — `window is not defined` during SSR
-
-**Symptom:** Build error or runtime error in Server Components that imported
-client-only code.
-
-**Root cause:** `window.location.href` called at module level, not inside an
-event handler.
-
-**Fix:** Always call `window.location.href` inside `async function onSubmit()`
-— never at the top level of the module.
-
----
-
-## 7. Security Decisions Reference
-
-| Decision                               | Alternative            | Why we chose this                            |
-| -------------------------------------- | ---------------------- | -------------------------------------------- |
-| bcryptjs 12 rounds                     | MD5, SHA, fewer rounds | ~300ms per hash — impractical to brute force |
-| Hash tokens before DB storage          | Store raw token        | DB breach cannot verify/reset emails         |
-| Identical response for forgot-password | Return "not found"     | Prevents user enumeration                    |
-| Soft delete + anonymization            | Hard delete            | Preserves audit integrity, GDPR compliant    |
-| HttpOnly JWT cookie                    | localStorage           | XSS cannot steal the session token           |
-| Sliding window rate limit              | Fixed window           | No boundary exploit possible                 |
-| Fire-and-forget audit log              | Awaited write          | Audit failure never blocks user operations   |
-| Email verification before first login  | Sign in immediately    | Prevents claiming unowned emails             |
-| `$transaction` for token+user updates  | Separate updates       | Atomicity prevents partial state             |
-| Rate limit by email AND IP             | IP only                | Prevents targeting one account from many IPs |
-
----
-
-## 8. Phase 1 Done Criteria
-
-- [x] User can sign up → receives verification email → clicks link → email verified
-- [x] User can sign in with email/password → session cookie set → dashboard
-- [x] User can sign in with Google → `emailVerified` set automatically → dashboard
-- [x] User can request password reset → receives email → resets password
-- [x] Accessing `/dashboard` without session → redirect to sign-in
-- [x] Accessing `/dashboard` with unverified email → redirect to verify-email
-- [x] Accessing `/admin` as `BUSINESS_OWNER` → redirect to sign-in
-- [x] 5 login attempts → rate limit error returned
-- [x] All auth pages render correctly in Arabic (RTL) and English (LTR)
-- [x] All user-facing strings live in `messages/ar.json` and `messages/en.json`
-
----
-
-## 9. What Phase 2 Will Harden
-
-Phase 1 is fully functional but has known limitations:
-
-### 1. JWT revocation on password reset
-
-Currently, changing your password does not invalidate existing JWT cookies on
-other devices (because JWTs are self-contained). Phase 2 fixes this:
-
-```typescript
-// Add to User model:
-passwordChangedAt DateTime?
-
-// Add to jwt() callback in auth.ts:
-if (dbUser.passwordChangedAt) {
-  const tokenIssuedAt = token.iat as number  // seconds since epoch
-  const passwordChanged = dbUser.passwordChangedAt.getTime() / 1000
-  if (tokenIssuedAt < passwordChanged) {
-    return null  // invalidate — forces re-sign-in
-  }
-}
-```
-
-### 2. Resend verification email
-
-Users who never received (or lost) their verification email currently have no
-way to request a new one. Phase 2 adds a "resend verification" action with
-its own rate limit (3 per hour per email).
-
-### 3. React Email templates
-
-Current emails are plain HTML strings. Phase 9 replaces them with React Email
-components matching the app's visual identity — proper typography, logo,
-branded colors, unsubscribe link.
-
-### 4. Admin role assignment UI
-
-Currently, roles can only be changed by direct DB manipulation via Prisma
-Studio. Phase 2 adds an admin panel where `SUPER_ADMIN` can promote users to
-`ADMIN` through the UI.
-
-### 5. `passwordChangedAt` field
-
-Required for the JWT revocation fix above. Will be added to the Prisma schema
-in Phase 2 migration: `passwordChangedAt DateTime?`
+_Phase 2 complete. Next: Phase 3 — Category CMS (admin can create/edit/reorder categories end-to-end)._

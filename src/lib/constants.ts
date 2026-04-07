@@ -68,3 +68,33 @@ export const TOKEN_EXPIRY = {
   EMAIL_VERIFICATION_HOURS: 24,
   PASSWORD_RESET_HOURS: 1,
 } as const;
+
+// ── Cache key prefixes ────────────────────────────────────────────────────────
+// WHY constants? Prevents "setting:max_photos" vs "settings:max_photos" typos
+// causing Redis misses that are impossible to debug.
+export const CACHE_KEYS = {
+  SETTING: (key: string) => `setting:${key}`,
+  CATEGORIES_ALL: "categories:all",
+  SUGGEST: (query: string) => `suggest:${query.toLowerCase().trim()}`,
+  PDF: (city: string, category: string, lang: string) =>
+    `pdf:${city}:${category}:${lang}`,
+} as const;
+
+// ── Business listing limits (fallback values if DB/Redis unavailable) ────────
+export const LISTING_DEFAULTS = {
+  MAX_PHOTOS: 10,
+  MAX_VIDEOS: 3,
+  MAX_LISTINGS_PER_OWNER: 3,
+  MAX_VIDEO_SIZE_MB: 100,
+  MAX_VIDEO_DURATION_SECONDS: 300,
+  LISTING_RATE_LIMIT_PER_DAY: 1,
+} as const;
+
+// ── Search constraints ────────────────────────────────────────────────────────
+// Enforced both client-side (disable button) and server-side (return 400)
+export const SEARCH = {
+  MIN_QUERY_LENGTH: 2, // Single-char trigram searches are slow + noisy
+  MAX_QUERY_LENGTH: 100,
+  DEFAULT_PAGE_SIZE: 12,
+  MAX_PAGE_SIZE: 50,
+} as const;

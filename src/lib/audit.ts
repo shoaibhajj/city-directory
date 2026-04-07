@@ -46,5 +46,37 @@ export function writeAuditLog(params: AuditParams): void {
         ipAddress: params.ipAddress,
       },
     })
-    .catch((err) => console.error("[AuditLog] write failed:", err));
+    .catch((err: unknown) => {
+      console.error("[AuditLog] Write failed — action was NOT blocked:", {
+        action: params.action,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        error: err,
+      });
+      // TODO Phase 12: forward to Sentry here
+    });
+}
+
+// ── Convenience helper for building a JSON diff ─────────────────────────────
+// Use this in updateListingAction to capture only changed fields.
+//
+// Example:
+//   const { prev, next } = buildDiff(existingListing, { nameAr: 'New Name' })
+//   writeAuditLog({ ..., previousValues: prev, newValues: next })
+//
+export function buildDiff<T extends Record<string, unknown>>(
+  before: T,
+  updates: Partial<T>,
+): { prev: Partial<T>; next: Partial<T> } {
+  const prev: Partial<T> = {};
+  const next: Partial<T> = {};
+
+  for (const key of Object.keys(updates) as Array<keyof T>) {
+    if (before[key] !== updates[key]) {
+      prev[key] = before[key];
+      next[key] = updates[key];
+    }
+  }
+
+  return { prev, next };
 }
