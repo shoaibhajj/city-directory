@@ -299,20 +299,24 @@ model Category {
 }
 
 model Subcategory {
-  id           String   @id @default(cuid())
-  nameAr       String
-  nameEn       String
-  slug         String   @unique
-  categoryId   String
-  isVisible    Boolean  @default(true)
-  displayOrder Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  nameAr        String
+  nameEn        String
+  slug          String   @unique
+  categoryId    String
+  descriptionAr String?         // ← ADD
+  descriptionEn String?         // ← ADD
+  icon          String?          // ← ADD
+  isVisible     Boolean  @default(true)
+  displayOrder  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   category Category          @relation(fields: [categoryId], references: [id])
   listings BusinessProfile[]
 
   @@index([categoryId])
+  @@index([isVisible, displayOrder])   // ← ADD this index too
   @@map("subcategories")
 }
 

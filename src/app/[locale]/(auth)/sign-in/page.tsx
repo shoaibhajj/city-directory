@@ -11,6 +11,7 @@ import { useTranslations } from "next-intl";
 
 export default function SignInPage() {
   const t = useTranslations("auth");
+  const tt = useTranslations("common");
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -128,9 +129,7 @@ export default function SignInPage() {
           <div className="w-full border-t border-gray-200" />
         </div>
         <div className="relative flex justify-center text-xs text-gray-400">
-          <span className="bg-white px-2">
-            {t("common.or", { ns: "common" })}
-          </span>
+          <span className="bg-white px-2">{tt("or")}</span>
         </div>
       </div>
 
