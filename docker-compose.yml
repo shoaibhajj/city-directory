@@ -3,12 +3,12 @@
 #
 # This file defines the local development infrastructure.
 # It is NOT used in production — production uses Neon (PostgreSQL) and Upstash (Redis).
-# 
+#
 # WHY docker-compose and not just Docker?
 # docker-compose lets you define and run MULTIPLE containers together.
 # We need PostgreSQL AND Redis. docker-compose starts both with one command.
 
-version: '3.8'
+version: "3.8"
 
 services:
   # ─── PostgreSQL Database ───────────────────────────────────────────
@@ -16,29 +16,29 @@ services:
     # Use the official PostgreSQL 16 Alpine image.
     # Alpine = Linux distribution optimized for small size (~80MB vs ~350MB for full)
     image: postgres:16-alpine
-    
+
     # Container name — used in error messages and docker ps output
     container_name: city_directory_db
-    
+
     environment:
       # These credentials are ONLY for local development.
-      # They are committed to Git because they are not secrets — 
+      # They are committed to Git because they are not secrets —
       # they only work on your local machine's Docker network.
       POSTGRES_DB: city_directory_dev
       POSTGRES_USER: devuser
       POSTGRES_PASSWORD: devpassword
-    
+
     ports:
       # Map host machine port 5432 to container port 5432
       # Format: "host_port:container_port"
       # This lets Prisma on your machine connect to the DB inside Docker
       - "5432:5432"
-    
+
     volumes:
       # Named volume: persists DB data even when container is stopped/restarted
       # Without this, all your data disappears every time you restart Docker
       - postgres_data:/var/lib/postgresql/data
-    
+
     # Health check: Docker checks if PostgreSQL is ready to accept connections
     # Other services can depend on this becoming "healthy"
     healthcheck:
@@ -51,19 +51,19 @@ services:
   redis:
     # Redis 7 Alpine — small, fast, the most widely used version
     image: redis:7-alpine
-    
+
     container_name: city_directory_redis
-    
+
     ports:
       - "6379:6379"
-    
+
     volumes:
       - redis_data:/data
-    
+
     # Start Redis with persistence enabled (saves data to disk every 60 seconds)
     # Without this, Redis data is lost on container restart
     command: redis-server --appendonly yes
-    
+
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

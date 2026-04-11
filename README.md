@@ -1,364 +1,406 @@
-Absolutely — here is a **fully polished Phase 3 markdown section** in the same style as your current README, with a table of contents, nested headings, shorter code blocks, and comments inside code to explain **what we did and why**. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
+# Phase 4: Business Profile & Owner Dashboard
+
+**الحالة:** ✅ مكتمل  
+**المدة الفعلية:** ~7 أيام  
+**التبعيات:** Phase 0 → Phase 1 → Phase 2 → Phase 3
 
 ---
 
-## 5. Phase 3 — Category & CMS System
+## ما الذي بنيناه في هذه المرحلة؟
 
-### Table of Contents
+Phase 4 هي القلب النابض للتطبيق بأكمله. قبلها كان لدينا:
 
-1. [Phase Goal](#phase-goal)
-2. [Theory](#theory)
-3. [Implementation Plan](#implementation-plan)
-4. [Files We Added](#files-we-added)
-5. [Code Walkthrough](#code-walkthrough)
-6. [Redis Cache Verification](#redis-cache-verification)
-7. [Done Criteria](#done-criteria)
-8. [What This Phase Teaches](#what-this-phase-teaches)
+- بنية تحتية (Phase 0)
+- نظام تسجيل دخول (Phase 1)
+- قاعدة بيانات ونماذج (Phase 2)
+- نظام التصنيفات (Phase 3)
+
+بعدها أصبح لدينا الشيء الحقيقي: **صاحب عمل يستطيع إنشاء قائمة، تعديلها، نشرها، وظهورها للعموم على رابط عام.**
 
 ---
 
-### Phase Goal
+## المفاهيم النظرية التي طبّقناها
 
-Super Admin can create, edit, reorder, and toggle visibility of categories and subcategories at runtime — no code deploy needed. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-This phase exists because categories are business content, so they belong in the database, not in TypeScript enums or hardcoded arrays. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The public site reads visible categories through a Redis-cached API, while the admin UI manages the full category structure from a dedicated CMS screen. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
+### 1. نموذج الدوائر الثلاث (Three Concentric Circles)
 
----
-
-### Theory
-
-#### Why database-driven categories?
-
-A junior engineer might hardcode categories in code because it feels simple at first. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-That approach fails the moment the admin asks for a new category like “Gyms” or wants to hide one without redeploying the app. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-Database-driven categories let non-developers change content at runtime, which is exactly what a CMS should do. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### Why cache categories?
-
-Category reads happen far more often than category writes. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-That makes categories a perfect fit for Redis caching, because the public directory benefits from fast reads while admin changes remain rare and easy to invalidate. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-We cache the public result in `categories:all` and delete that key after every mutation so the next read rebuilds fresh data from PostgreSQL. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### Why block delete?
-
-A category must not be deleted if active listings still depend on it. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-Without that guard, the directory could end up with broken relationships or orphaned listings. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-So the delete flow checks for active listings first, and returns a clear error message if the category is still in use. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### Why reorder in a transaction?
-
-Reordering changes multiple rows at once, so it must either fully succeed or fail safely. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-A Prisma transaction ensures the ordering stays consistent even if something goes wrong halfway through. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-That is the correct pattern for a bulk state change like display order. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
----
-
-### Implementation Plan
-
-#### 1. Add schemas
-
-We created Zod schemas for category and subcategory create/update actions. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-These schemas validate bilingual names, optional slugs, icons, visibility, descriptions, and display order. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-Slug generation is handled from `nameEn` when the admin does not type one manually. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### 2. Add query layer
-
-We created query functions for public and admin reads. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-`getAllCategories()` checks Redis first, falls back to Prisma on cache miss, then writes the response back with a 10-minute TTL. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The admin query bypasses the public cache so the CMS always sees the latest state. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### 3. Add server actions
-
-We created server actions for create, update, delete, reorder, and subcategory CRUD. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-Each action checks Super Admin permission, validates the payload, performs the database write, invalidates cache, and writes an audit log. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-This keeps all privileged business logic in the middle layer where the security boundary belongs. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### 4. Add public API routes
-
-We created `/api/v1/categories` for public reads and separate protected routes for write operations. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The public route returns only visible categories and visible subcategories. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The write routes are protected so only Super Admin users can mutate the structure. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### 5. Add admin UI
-
-We added the admin categories page, drag-and-drop sorting, category forms, delete confirmation, and modal-driven create/edit flows. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The UI is Arabic-first and shows both Arabic and English names in each row so admins can manage bilingual content clearly. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-This gives the Super Admin a real CMS experience instead of a plain table editor. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
----
-
-### Files We Added
-
-#### `src/features/categories/schemas.ts`
-
-This file defines the input rules for categories and subcategories. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-We keep validation here so both the server actions and API routes can reuse the same contract. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/features/categories/queries.ts`
-
-This file reads categories from PostgreSQL and manages Redis cache for the public read path. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-We keep cache logic here because reads and invalidation belong together. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/features/categories/actions.ts`
-
-This file holds all category mutation logic. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-It is where we enforce permissions, validate input, write to the database, invalidate cache, and log changes. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/app/api/v1/categories/route.ts`
-
-This file exposes the public category endpoint. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-It returns visible categories and can be cached safely because writes always invalidate the cache key. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/app/api/v1/categories/[id]/route.ts`
-
-This file handles update and delete for a single category. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-It exists so external consumers and future mobile clients can still use the same versioned API contract. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/app/api/v1/categories/reorder/route.ts`
-
-This file handles bulk reorder requests. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-It accepts the new order array and persists it in one transaction. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/app/[locale]/(admin)/admin/categories/page.tsx`
-
-This file renders the admin CMS page. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-It fetches fresh admin data on the server and passes it to the interactive client shell. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-#### `src/app/[locale]/(admin)/admin/categories/CategoriesClient.tsx`
-
-This file manages client-side modal state, visibility toggles, and drag-and-drop actions. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-We keep it separate from the server page so the admin interface stays interactive without breaking the security boundary. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
----
-
-### Code Walkthrough
-
-#### Zod schemas
-
-```ts
-import { z } from "zod";
-
-function toSlug(str: string): string {
-  return str
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/[^\w-]/g, "")
-    .replace(/-+/g, "-");
-}
-
-// Why: category names come from the admin UI, so we validate them before
-// they ever reach Prisma. This keeps bad data out of the database.
-export const CreateCategorySchema = z.object({
-  nameAr: z.string().min(2, "الاسم بالعربية مطلوب").max(100),
-  nameEn: z.string().min(2, "English name is required").max(100),
-  slug: z
-    .string()
-    .min(2)
-    .max(120)
-    .regex(/^[a-z0-9-]+$/)
-    .optional(),
-  icon: z.string().max(50).optional().nullable(),
-  isVisible: z.boolean().default(true),
-  displayOrder: z.number().int().min(0).default(0),
-  descriptionAr: z.string().max(500).optional().nullable(),
-  descriptionEn: z.string().max(500).optional().nullable(),
-});
-
-export { toSlug };
+```
+┌─────────────────────────────────────────┐
+│  OUTER — Client (Browser)               │
+│  NewListingForm, DashboardPage          │
+│                                         │
+│  ┌───────────────────────────────────┐  │
+│  │  MIDDLE — Security Boundary       │  │
+│  │  Server Actions + API Routes      │  │
+│  │  ← كل الـ Authorization هنا      │  │
+│  │                                   │  │
+│  │  ┌─────────────────────────────┐  │  │
+│  │  │  INNER — Data               │  │  │
+│  │  │  PostgreSQL + Redis         │  │  │
+│  │  └─────────────────────────────┘  │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
 ```
 
-#### Category queries with Redis
+**القاعدة الذهبية:** Client Component لا يكلّم قاعدة البيانات أبدًا.  
+كل شيء يمر عبر Server Actions → هذا هو المكان الوحيد الذي تحدث فيه صلاحيات الملكية.
 
-```ts
-import { redis } from "@/lib/redis";
-import { prisma } from "@/lib/prisma";
+---
 
-const CACHE_KEY = "categories:all";
-const CACHE_TTL_SECONDS = 600;
+### 2. آلة الحالات (State Machine)
 
-// Why: this is the public read path, so we check Redis first.
-// If the cache is warm, we avoid a database hit.
-export async function getAllCategories() {
-  const cached = await redis.get(CACHE_KEY);
-  if (cached) return cached;
+الـ `BusinessProfile` لديه حالات محددة وانتقالات مسموح بها فقط:
 
-  const rows = await prisma.category.findMany({
-    where: { isVisible: true },
-    orderBy: { displayOrder: "asc" },
-    include: {
-      subcategories: {
-        where: { isVisible: true },
-        orderBy: { displayOrder: "asc" },
-      },
-    },
-  });
+```
+DRAFT ──(owner submits)──→ ACTIVE
+                              │
+                    (admin)   ↓         (admin)
+                         SUSPENDED ────→ ACTIVE
 
-  // Why: public category data is read-heavy, so we cache it for 10 minutes.
-  await redis.set(CACHE_KEY, rows, { ex: CACHE_TTL_SECONDS });
-  return rows;
-}
-
-export async function invalidateCategoriesCache() {
-  // Why: every category mutation must clear the public cache immediately.
-  await redis.del(CACHE_KEY);
-}
+❌ ACTIVE → DRAFT: غير مسموح (لمنع حذف القوائم المنشورة عن طريق الخطأ)
 ```
 
-#### Category actions
+هذا يعني: صاحب العمل لا يستطيع "سحب" قائمته بعد النشر. المسؤول فقط يستطيع تعليقها.
 
-```ts
-"use server";
+**لماذا State Machine وليس boolean بسيط؟**  
+لأن `boolean isPublished` يصعب التوسع فيه. ماذا لو أضفنا حالة `PENDING_REVIEW` لاحقًا؟ مع enum وState Machine هذا تغيير سطر واحد.
 
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
-import { invalidateCategoriesCache } from "./queries";
-import { CreateCategorySchema, toSlug } from "./schemas";
+---
 
-async function requireSuperAdmin() {
-  const session = await auth();
-  if (!session?.user) throw new Error("UNAUTHENTICATED");
-  if (session.user.role !== "SUPERADMIN") throw new Error("FORBIDDEN");
-  return session.user;
-}
+### 3. توليد الـ Slug من العربية
 
-// Why: the slug must be unique so public category URLs stay stable.
-async function ensureUniqueCategorySlug(base: string, excludeId?: string) {
-  let slug = base;
-  let counter = 1;
+المشكلة: الروابط في الإنترنت لا تدعم الأحرف العربية بشكل جيد.  
+الحل: تحويل الاسم العربي إلى حروف لاتينية.
 
-  while (true) {
-    const existing = await prisma.category.findUnique({ where: { slug } });
-    if (!existing || existing.id === excludeId) return slug;
-    slug = `${base}-${++counter}`;
-  }
-}
-
-export async function createCategory(data: unknown) {
-  const actor = await requireSuperAdmin();
-  const parsed = CreateCategorySchema.parse(data);
-
-  const slug = await ensureUniqueCategorySlug(
-    parsed.slug ?? toSlug(parsed.nameEn),
-  );
-
-  const category = await prisma.category.create({
-    data: {
-      nameAr: parsed.nameAr,
-      nameEn: parsed.nameEn,
-      slug,
-      icon: parsed.icon ?? null,
-      isVisible: parsed.isVisible,
-      displayOrder: parsed.displayOrder,
-      descriptionAr: parsed.descriptionAr ?? null,
-      descriptionEn: parsed.descriptionEn ?? null,
-    },
-  });
-
-  // Why: homepage and public directory must see the new category immediately.
-  await invalidateCategoriesCache();
-
-  // Why: admin actions must leave an audit trail.
-  await writeAuditLog({
-    actorId: actor.id,
-    actorEmail: actor.email ?? null,
-    actorRole: actor.role,
-    action: "CREATE",
-    entityType: "Category",
-    entityId: category.id,
-    newValues: category,
-  });
-
-  return { success: true, data: category };
-}
+```
+"صيدلية رفاء طلا"
+    ↓ transliterate
+"saydaliyat rafa tla"
+    ↓ lowercase + replace spaces
+"saydaliyat-rafa-tla"
+    ↓ check DB collision
+"saydaliyat-rafa-tla-2"  ← إذا كان موجودًا مسبقًا
 ```
 
-#### Public API route
+---
 
-```ts
-import { NextResponse } from "next/server";
-import { getAllCategories } from "@/features/categories/queries";
+### 4. Server Component يمرر Data لـ Client Component
 
-export async function GET() {
-  try {
-    const categories = await getAllCategories();
+هذا أهم مفهوم في Next.js App Router:
 
-    // Why: public reads are cacheable because category writes always invalidate.
-    return NextResponse.json(categories, {
-      headers: {
-        "Cache-Control": "public, s-maxage=600, stale-while-revalidate=60",
-      },
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch categories" },
-      { status: 500 },
-    );
-  }
-}
+```
+page.tsx (Server Component)
+    │
+    ├── يتصل بـ Prisma مباشرة
+    ├── يجلب categories + cities
+    │
+    └── <NewListingForm categories={...} cities={...} />
+              │
+              └── 'use client'
+                  ├── يعرض الـ form للمستخدم
+                  ├── يستدعي Server Action
+                  └── يعرض أخطاء أو يعمل redirect
 ```
 
-#### Admin page
+الـ Client Component لا يعرف كيف جُلبت البيانات — هو فقط يستهلكها.
 
-```tsx
-import { getAllCategoriesAdmin } from "@/features/categories/queries";
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import { CategoriesClient } from "./CategoriesClient";
+---
 
-export const dynamic = "force-dynamic";
+### 5. نمط ActionResult بدل throw
 
-// Why: admin should always see the latest data, not a cached render.
-export default async function AdminCategoriesPage() {
-  const session = await auth();
+**المشكلة:** عند `throw new Error('...')` داخل Server Action، الصفحة تنكسر بالكامل.
 
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
-    redirect("/ar/sign-in");
-  }
+**الحل:** نرجع object يصف النتيجة:
 
-  const categories = await getAllCategoriesAdmin();
+```typescript
+// ❌ قبل
+if (rateLimited)
+  throw new Error("You can create only one new listing every 24 hours");
 
-  return (
-    <main className="p-6 max-w-3xl mx-auto" dir="rtl">
-      <CategoriesClient categories={categories} />
-    </main>
+// ✅ بعد
+if (rateLimited)
+  return actionError("يمكنك إنشاء قائمة واحدة فقط كل 24 ساعة", "RATE_LIMITED");
+```
+
+**القاعدة:**
+
+- `throw` → للأخطاء غير المتوقعة (DB crash، network error)
+- `return actionError()` → للأخطاء المتوقعة (rate limit، validation، owner limit)
+
+---
+
+### 6. ISR — Incremental Static Regeneration
+
+الصفحات العامة للأعمال هي static pages تُعاد بناؤها كل ساعة:
+
+```
+المستخدم يفتح الرابط
+        │
+        ↓
+هل الصفحة cached؟
+   │              │
+  نعم            لا
+   │              │
+تُعرض فورًا    تُبنى وتُحفظ
+   │              │
+   └──────────────┘
+         ↓
+    revalidatePath() عند تحديث البيانات
+    → Next.js يبني النسخة الجديدة في الخلفية
+```
+
+**لماذا ISR وليس SSR؟**  
+SSR يبني كل صفحة عند كل request → بطيء ومكلف.  
+ISR يبني مرة وتخدم الملايين → سريع وبدون تكلفة.
+
+---
+
+## الملفات التي أنشأناها
+
+```
+src/
+  lib/
+    action-response.ts          ← ActionResult<T> pattern
+
+  features/
+    business/
+      constants.ts              ← WEEK_DAYS, rate limit constants
+      types.ts                  ← TypeScript types
+      schemas.ts                ← Zod validation schemas
+      utils.ts                  ← canTransitionTo, generateSlug, buildSearchableText
+      queries.ts                ← getListingBySlug, getListingsByOwner, getPublicListings
+      actions.ts                ← createListing, updateListing, submitListing, softDelete
+
+  components/
+    business/
+      listing-view-tracker.tsx  ← fire-and-forget view counter
+      forms/
+        new-listing-form.tsx    ← Client Component for creating listing
+
+  app/
+    [locale]/
+      (dashboard)/
+        dashboard/
+          listings/
+            new/
+              page.tsx          ← Server Component يجلب categories+cities
+            [id]/
+              page.tsx          ← Step 1: Basic info
+              contact/page.tsx  ← Step 2: Phones + Address
+              hours/page.tsx    ← Step 3: Working hours
+              social/page.tsx   ← Step 4: Social links
+              media/page.tsx    ← Step 5: Photos (Phase 5)
+
+      (public)/
+        [citySlug]/
+          [categorySlug]/
+            [businessSlug]/
+              page.tsx          ← Public ISR profile page
+
+    api/v1/
+      businesses/
+        [id]/
+          view/route.ts         ← View counter API
+```
+
+---
+
+## تفاصيل كل Server Action
+
+### `createListingAction`
+
+```
+الدخل: { nameAr, categoryId, cityId, ... }
+
+الخطوات:
+1. requireVerifiedOwnerSession()     ← المستخدم مسجل دخول ومتحقق البريد؟
+2. currentCount >= maxListings?      ← وصل للحد الأقصى من القوائم؟
+3. redis.get(`listing_create:${id}`) ← أنشأ قائمة خلال 24 ساعة؟
+4. CreateListingSchema.parse(rawData)← البيانات صحيحة؟
+5. validateCategoryAndSubcategory()  ← التصنيف موجود؟ الفئة الفرعية تنتمي له؟
+6. prisma.city.findUnique()          ← المدينة موجودة؟
+7. prisma.$transaction(async tx => { ← الكل أو لا شيء
+     tx.businessProfile.create()     ← أنشئ المسودة
+     tx.workingHours.createMany()    ← 7 أيام مغلقة افتراضيًا
+   })
+8. redis.setex(rateLimitKey, ...)    ← قيّد الـ rate limit
+9. writeAuditLog(...)                ← سجّل في audit log
+10. return actionSuccess({ id, slug })
+```
+
+**لماذا Transaction؟**  
+إذا نجح إنشاء الـ BusinessProfile لكن فشل إنشاء WorkingHours → سيكون لدينا listing بدون أيام عمل.  
+الـ Transaction يضمن: إما الكل ينجح أو الكل يُلغى.
+
+---
+
+### `updateListingAction`
+
+يعمل حسب الـ `step`:
+
+| Step      | ما يُحدَّث                                                         |
+| --------- | ------------------------------------------------------------------ |
+| `basic`   | nameAr, nameEn, description, category, city, slug (إذا تغير الاسم) |
+| `contact` | address, coordinates, phones (deleteMany + createMany)             |
+| `hours`   | 7 أيام (deleteMany + createMany)                                   |
+| `social`  | social links (deleteMany + createMany)                             |
+
+كل step:
+
+1. يتحقق من الملكية أولًا: `findFirst({ where: { id, ownerId } })`
+2. يبني JSON diff للـ audit log
+3. يحدّث البيانات
+4. يستدعي `revalidatePath()` على الرابط العام
+
+---
+
+### `submitListingAction`
+
+```
+التحقق → canTransitionTo(DRAFT, ACTIVE) → تحقق من الحقول المطلوبة
+    ↓
+status: 'ACTIVE', publishedAt: now()
+    ↓
+writeAuditLog + revalidatePath (profile + category pages)
+```
+
+**لماذا auto-approve وليس manual review؟**  
+قرار معماري في ADR-003: Manual review يُبطئ العملية.  
+بدلًا من ذلك: badge "غير موثّق" + نظام إبلاغ + أدمن يتصرف بعد الحقيقة.
+
+---
+
+## الصفحة العامة — كيف تعمل ISR
+
+```typescript
+export const revalidate = 3600; // تُعاد البناء كل ساعة كحد أقصى
+
+export async function generateStaticParams() {
+  // أهم 100 قائمة × 2 لغات = 200 صفحة مبنية مسبقًا عند الـ build
+  return listings.flatMap((l) =>
+    ["ar", "en"].map((locale) => ({ locale, ...slugs })),
   );
 }
 ```
 
----
+عند تعديل القائمة من الداشبورد:
 
-### Redis Cache Verification
-
-Because the project now uses Upstash Redis, cache inspection should be done through the Upstash console or REST API. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-The key you should verify is `categories:all`. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-After the first successful public request, that key should exist and contain the serialized category payload. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-
-```bash
-curl -s \
-  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN" \
-  "$UPSTASH_REDIS_REST_URL/get/categories:all"
+```
+updateListingAction()
+    ↓
+revalidatePath('/ar/al-nabik/pharmacies/saydaliyat-al-nour')
+revalidatePath('/en/al-nabik/pharmacies/saydaliyat-al-nour')
+    ↓
+Next.js يبني النسخة الجديدة عند أول زيارة لاحقة
 ```
 
-If the cache is warm, the response should return the stored JSON payload. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-If the key is missing, the response should return `null`, and the next public request should repopulate it. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
+---
+
+## عداد المشاهدات — Fire and Forget
+
+```
+المستخدم يفتح صفحة العمل
+    ↓
+الصفحة تُعرض فورًا (لا ننتظر شيئًا)
+    ↓
+useEffect يُطلق request في الخلفية (لا نهتم بالرد)
+    ↓
+/api/v1/businesses/:id/view
+    ↓
+هل شاهد هذا الـ IP هذه القائمة خلال 24 ساعة؟ (Redis)
+    ├── نعم → { counted: false }
+    └── لا  → viewCount += 1, سجّل في Redis
+```
+
+**لماذا fire-and-forget؟**  
+لأن عداد المشاهدات لا يجب أن يُبطئ تحميل الصفحة.  
+إذا فشل الـ request → لا يهم، الصفحة مرت بشكل مثالي.
 
 ---
 
-### Done Criteria
+## الأخطاء التي واجهناها وكيف حللناها
 
-- Super Admin can create a new category and it appears on the homepage immediately. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-- Dragging categories into a new order and saving persists the order. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-- Deleting a category that has listings returns a clear error message. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-- `GET /api/v1/categories` returns a cached response on the second call, and `categories:all` is visible in Upstash. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
+### 1. خطأ DayOfWeek enum
+
+```
+Expected DayOfWeek, provided Int.
+```
+
+**السبب:** `WEEK_DAYS = [0, 1, 2, 3, 4, 5, 6]` أرقام صحيحة.  
+**الحل:** `WEEK_DAYS: DayOfWeek[] = [DayOfWeek.SATURDAY, DayOfWeek.SUNDAY, ...]`
+
+**الدرس:** Prisma strict enums — لا يقبل `Int` بدل `enum`.
+
+---
+
+### 2. خطأ الـ Redirect مع query params زائدة
+
+```
+/ar/dashboard/listings/[id]?id=xxx   ← خاطئ
+/ar/dashboard/listings/xxx           ← صحيح
+```
+
+**السبب:** استخدام `query: { id }` في الـ redirect.  
+**الحل:** `router.push(\`/${locale}/dashboard/listings/${result.data.id}\`)`
 
 ---
 
-### What This Phase Teaches
+### 3. صفحة تنكسر عند rate limit
 
-Phase 3 is a small phase technically, but it teaches a very important pattern. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-Business content belongs in the database, public reads should be cached, privileged writes should pass through the security boundary, and every mutation should leave an audit trail. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
-That pattern will repeat in later phases for listings, media, settings, and admin workflows. [ppl-ai-file-upload.s3.amazonaws](https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_2d6c9820-cd00-4aa1-a42f-7b4ffb3db9ac/cfb7ba98-c437-4a56-b3f5-ee3d8d597b4d/README.md)
+```
+throw new Error('...') → الصفحة تنكسر
+```
+
+**الحل:** `return actionError('...', 'RATE_LIMITED')` + Client يعرض banner أحمر.
 
 ---
+
+### 4. Categories لا تظهر في الـ Form
+
+**السبب:** الـ `page.tsx` لم يكن يجلب البيانات من DB ويمررها كـ props.  
+**الحل:** Server Component يجلب + يمرر، Client Component يعرض.
+
+---
+
+## معمارية مهمة: لماذا ملفان بدل ملف واحد
+
+```typescript
+// src/lib/api-response.ts ← للـ API Routes
+return Response.json(buildSuccess({ counted: true }));
+// يُرجع HTTP Response مع status code
+
+// src/lib/action-response.ts ← للـ Server Actions
+return actionSuccess({ id: created.id, slug: created.slug });
+// يُرجع plain object يقرأه Client Component مباشرة
+```
+
+الفصل بينهما مهم: API Routes تُستهلك من mobile apps وتحتاج HTTP status codes.  
+Server Actions تُستهلك من Client Components مباشرة.
+
+---
+
+## ✅ معايير اكتمال Phase 4
+
+- [x] صاحب عمل يُنشئ قائمة → تظهر بحالة `DRAFT` مع 7 أيام عمل
+- [x] Rate limit: قائمة واحدة كل 24 ساعة لكل مستخدم
+- [x] تعديل الاسم العربي → يُعيد توليد الـ slug تلقائيًا
+- [x] تقديم القائمة → الحالة تتغير لـ `ACTIVE`
+- [x] الرابط العام `/ar/al-nabik/{category}/{slug}` يعرض الصفحة
+- [x] تعديل القائمة → `revalidatePath` → الرابط العام يتحدث خلال ثوانٍ
+- [x] عداد المشاهدات: IP واحد = مشاهدة واحدة كل 24 ساعة
+- [x] JSON-LD `LocalBusiness` في كل صفحة عامة
+- [x] الداشبورد يعرض عدد القوائم وحالتها
+- [x] الأخطاء المتوقعة تُعرض للمستخدم بدل كسر الصفحة
+
+---
+
+## ما يأتي في Phase 5
+
+Phase 5 تكمل ما بدأناه هنا:
+
+- رفع الصور والفيديو (Cloudinary)
+- معالجة الصور (Sharp → WebP)
+- التحقق من magic bytes للأمان
+- Step 5 في الداشبورد (Media tab)
+- قائمة انتظار الفيديو للأدمن
+
+> **قبل البدء في Phase 5:** أعد قراءة هذا الملف وتأكد من اجتياز جميع معايير الاكتمال أعلاه.

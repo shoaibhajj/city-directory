@@ -38,13 +38,13 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10  # Must match your local pnpm version (check with: pnpm --version)
+          version: 10 # Must match your local pnpm version (check with: pnpm --version)
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'  # Caches ~/.pnpm-store between runs (~2min saved per run)
+          node-version: "20"
+          cache: "pnpm" # Caches ~/.pnpm-store between runs (~2min saved per run)
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
