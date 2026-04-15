@@ -27,8 +27,11 @@ enum ListingStatus {
 }
 
 enum MediaType {
-  IMAGE
+  IMAGE // kept for backward compatibility — do not use in new code
   VIDEO
+  COVER // ← NEW Phase 5
+  LOGO // ← NEW Phase 5
+  PHOTO // ← NEW Phase 5
 }
 
 enum MediaStatus {
@@ -109,6 +112,7 @@ enum NotificationType {
   VERIFICATION_GRANTED
   VERIFICATION_REVOKED
   VIDEO_APPROVED
+  VIDEO_PENDING_REVIEW // ← NEW Phase 5
   VIDEO_REJECTED
   FLAG_SUBMITTED
 }
@@ -147,7 +151,8 @@ model User {
   updatedSettings  PlatformSetting[] @relation("SettingUpdater")
 
   // Named relation — kept from Phase 1 to avoid breaking auth code
-  auditLogs AuditLog[] @relation("ActorAuditLogs")
+  auditLogs     AuditLog[]  @relation("ActorAuditLogs")
+  reviewedMedia MediaFile[] @relation("MediaReviewer")
 
   @@index([email])
   @@index([deletedAt])
@@ -304,9 +309,9 @@ model Subcategory {
   nameEn        String
   slug          String   @unique
   categoryId    String
-  descriptionAr String?         // ← ADD
-  descriptionEn String?         // ← ADD
-  icon          String?          // ← ADD
+  descriptionAr String? // ← ADD
+  descriptionEn String? // ← ADD
+  icon          String? // ← ADD
   isVisible     Boolean  @default(true)
   displayOrder  Int      @default(0)
   createdAt     DateTime @default(now())
@@ -316,7 +321,7 @@ model Subcategory {
   listings BusinessProfile[]
 
   @@index([categoryId])
-  @@index([isVisible, displayOrder])   // ← ADD this index too
+  @@index([isVisible, displayOrder]) // ← ADD this index too
   @@map("subcategories")
 }
 
@@ -349,10 +354,10 @@ model BusinessProfile {
   subcategoryId String?
 
   coverImageUrl String?
+  coverImageId  String? // ← NEW Phase 5: plain string ref to MediaFile.id
   logoImageUrl  String?
+  logoImageId   String? // ← NEW Phase 5: plain string ref to MediaFile.id
 
-  // Denormalized for pg_trgm: nameAr + nameEn + descriptionAr + addressAr
-  // Updated on every save in updateListingAction
   searchableText String? @db.Text
 
   viewCount   Int       @default(0)
@@ -362,11 +367,11 @@ model BusinessProfile {
   deletedAt   DateTime?
   deletedBy   String?
 
-  owner         User         @relation("ListingOwner",    fields: [ownerId],      references: [id])
+  owner         User         @relation("ListingOwner", fields: [ownerId], references: [id])
   verifiedBy    User?        @relation("ListingVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
-  deletedByUser User?        @relation("ListingDeleter",  fields: [deletedBy],    references: [id], onDelete: SetNull)
-  city          City         @relation(fields: [cityId],        references: [id])
-  category      Category     @relation(fields: [categoryId],    references: [id])
+  deletedByUser User?        @relation("ListingDeleter", fields: [deletedBy], references: [id], onDelete: SetNull)
+  city          City         @relation(fields: [cityId], references: [id])
+  category      Category     @relation(fields: [categoryId], references: [id])
   subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
 
   phoneNumbers PhoneNumber[]
@@ -432,9 +437,10 @@ model MediaFile {
   id                 String      @id @default(cuid())
   businessId         String
   type               MediaType
-  cloudinaryPublicId String      @unique
-  url                String
+  cloudinaryPublicId String?     @unique // ← NOW nullable (Phase 5 migration)
+  url                String? // ← NOW nullable (Phase 5 migration)
   thumbnailUrl       String?
+  mimeType           String? // ← NEW Phase 5
   status             MediaStatus @default(PENDING)
   displayOrder       Int         @default(0)
   width              Int?
@@ -442,13 +448,16 @@ model MediaFile {
   durationSeconds    Int?
   sizeBytes          Int?
   rejectionReason    String?
+  reviewedById       String? // ← NEW Phase 5
+  reviewedAt         DateTime? // ← NEW Phase 5
   uploadedById       String
   approvedAt         DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
 
-  business   BusinessProfile @relation(fields: [businessId],   references: [id], onDelete: Cascade)
-  uploadedBy User            @relation("MediaUploader",        fields: [uploadedById], references: [id])
+  business   BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploadedBy User            @relation("MediaUploader", fields: [uploadedById], references: [id])
+  reviewedBy User?           @relation("MediaReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([businessId])
   @@index([status])
@@ -472,9 +481,9 @@ model ReviewFlag {
   resolutionNotes String?
   createdAt       DateTime   @default(now())
 
-  business   BusinessProfile @relation(fields: [businessId],   references: [id], onDelete: Cascade)
-  reportedBy User?           @relation("FlagReporter",          fields: [reportedById], references: [id], onDelete: SetNull)
-  resolvedBy User?           @relation("FlagResolver",          fields: [resolvedById], references: [id], onDelete: SetNull)
+  business   BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reportedBy User?           @relation("FlagReporter", fields: [reportedById], references: [id], onDelete: SetNull)
+  resolvedBy User?           @relation("FlagResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   @@index([businessId])
   @@index([status])

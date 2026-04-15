@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // prisma/seed.ts
 // Idempotent seed — safe to run multiple times.
 // Uses upsert throughout: running it twice produces the same DB state.

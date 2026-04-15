@@ -110,5 +110,19 @@
     "draft": "Draft",
     "active": "Active",
     "suspended": "Suspended"
+  },
+  "media": {
+    "pageTitle": "Photos & Videos",
+    "cover": "Cover Image",
+    "logo": "Logo",
+    "photos": "Photo Gallery",
+    "videos": "Videos",
+    "status": {
+      "PENDING": "Pending Review",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
+    "videoReviewNotice": "Video will appear after admin approval",
+    "deleteConfirm": "Are you sure you want to delete this file? This cannot be undone."
   }
 }

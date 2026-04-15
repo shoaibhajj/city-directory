@@ -1,4 +1,3 @@
-// src/features/business/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -27,16 +26,33 @@ import {
   actionError,
   type ActionResult,
 } from "@/lib/action-response";
+import { handleActionError } from "@/lib/handle-error";
+import {
+  AuthError,
+  NotFoundError,
+  ValidationError,
+  RateLimitError,
+  LimitExceededError,
+} from "@/lib/errors";
+import { ErrorCodes } from "@/lib/error-codes";
 
+// ─── Private helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Throws typed errors instead of raw strings.
+ * Every caller can now catch AuthError | ForbiddenError specifically,
+ * or let handleActionError normalize them at the boundary.
+ */
 async function requireVerifiedOwnerSession() {
   const session = await auth();
 
   if (!session?.user?.id) {
-    throw new Error("Unauthorized");
+    throw new AuthError("يجب تسجيل الدخول أولاً");
   }
 
   if (!session.user.emailVerified) {
-    throw new Error("Email verification required");
+    // AUTH_EMAIL_NOT_VERIFIED maps to the correct code from error-codes.ts
+    throw new AuthError("يجب التحقق من البريد الإلكتروني أولاً");
   }
 
   return session;
@@ -52,21 +68,19 @@ async function validateCategoryAndSubcategory(
   });
 
   if (!category) {
-    throw new Error("Category not found");
+    throw new NotFoundError("التصنيف");
   }
 
   if (!subcategoryId) return;
 
   const subcategory = await prisma.subcategory.findFirst({
-    where: {
-      id: subcategoryId,
-      categoryId,
-    },
+    where: { id: subcategoryId, categoryId },
     select: { id: true },
   });
 
   if (!subcategory) {
-    throw new Error("Invalid subcategory for this category");
+    // ValidationError not NotFound — the subcategory may exist but not under this category
+    throw new ValidationError("التصنيف الفرعي لا ينتمي إلى هذا التصنيف");
   }
 }
 
@@ -93,71 +107,55 @@ async function invalidatePdfCache(citySlug: string, categorySlug: string) {
   await redis.del(`pdf:${citySlug}:all`);
 }
 
+// ─── createListingAction ──────────────────────────────────────────────────────
+
 export async function createListingAction(
   rawData: unknown,
 ): Promise<ActionResult<{ id: string; slug: string }>> {
-  // ── Auth ──
-  let session;
   try {
-    session = await requireVerifiedOwnerSession();
-  } catch {
-    return actionError("يجب تسجيل الدخول أولاً", "UNAUTHORIZED");
-  }
+    const session = await requireVerifiedOwnerSession();
+    const userId = session.user.id;
 
-  const userId = session.user.id;
+    // ── Owner limit ──
+    const maxListings = await getSettingNumber("max_listings_per_owner", 3);
+    const currentCount = await prisma.businessProfile.count({
+      where: { ownerId: userId, deletedAt: null },
+    });
 
-  // ── Owner limit ──
-  const maxListings = await getSettingNumber("max_listings_per_owner", 3);
-  const currentCount = await prisma.businessProfile.count({
-    where: { ownerId: userId, deletedAt: null },
-  });
+    if (currentCount >= maxListings) {
+      throw new LimitExceededError(
+        `وصلت للحد الأقصى من القوائم (${maxListings})`,
+        ErrorCodes.LISTING_LIMIT_REACHED,
+      );
+    }
 
-  if (currentCount >= maxListings) {
-    return actionError(
-      `وصلت للحد الأقصى من القوائم (${maxListings})`,
-      "LISTING_LIMIT_REACHED",
-    );
-  }
+    // ── Rate limit ──
+    const rateLimitKey = `listing_create:${userId}`;
+    const alreadyCreated = await redis.get(rateLimitKey);
 
-  // ── Rate limit ──
-  const rateLimitKey = `listing_create:${userId}`;
-  const alreadyCreated = await redis.get(rateLimitKey);
+    if (alreadyCreated) {
+      throw new RateLimitError("يمكنك إنشاء قائمة واحدة فقط كل 24 ساعة");
+    }
 
-  if (alreadyCreated) {
-    return actionError(
-      "يمكنك إنشاء قائمة واحدة فقط كل 24 ساعة",
-      "RATE_LIMITED",
-    );
-  }
+    // ── Validation ──
+    const parsed = CreateListingSchema.safeParse(rawData);
+    if (!parsed.success) {
+      throw new ValidationError(
+        parsed.error.issues[0]?.message ?? "بيانات غير صحيحة",
+      );
+    }
+    const data = parsed.data;
 
-  // ── Validation ──
-  const parsed = CreateListingSchema.safeParse(rawData);
-  if (!parsed.success) {
-    return actionError(
-      parsed.error.issues[0]?.message ?? "بيانات غير صحيحة",
-      "VALIDATION_ERROR",
-    );
-  }
-  const data = parsed.data;
-
-  // ── Category/City checks ──
-  try {
+    // ── Category / City checks ──
     await validateCategoryAndSubcategory(data.categoryId, data.subcategoryId);
-  } catch (err) {
-    return actionError(
-      err instanceof Error ? err.message : "تصنيف غير صالح",
-      "INVALID_CATEGORY",
-    );
-  }
 
-  const city = await prisma.city.findUnique({
-    where: { id: data.cityId },
-    select: { id: true },
-  });
-  if (!city) return actionError("المدينة غير موجودة", "INVALID_CITY");
+    const city = await prisma.city.findUnique({
+      where: { id: data.cityId },
+      select: { id: true },
+    });
+    if (!city) throw new NotFoundError("المدينة");
 
-  // ── DB write ──
-  try {
+    // ── DB write ──
     const created = await prisma.$transaction(async (tx) => {
       const finalSlug = await generateSlug(data.nameAr);
 
@@ -210,413 +208,400 @@ export async function createListingAction(
 
     return actionSuccess({ id: created.id, slug: created.slug });
   } catch (err) {
-    // هنا فقط نستخدم throw للأخطاء غير المتوقعة
-    console.error("[createListingAction]", err);
-    return actionError("حدث خطأ غير متوقع، حاول مرة أخرى", "UNEXPECTED_ERROR");
+    return actionError(
+      handleActionError(err),
+      ErrorCodes.SYSTEM_INTERNAL_ERROR,
+    );
   }
 }
+
+// ─── updateListingAction ──────────────────────────────────────────────────────
 
 export async function updateListingAction(
   listingId: string,
   step: "basic" | "contact" | "hours" | "social",
   rawData: unknown,
-) {
-  const session = await requireVerifiedOwnerSession();
+): Promise<ActionResult<{ slug?: string }>> {
+  try {
+    const session = await requireVerifiedOwnerSession();
 
-  const existing = await prisma.businessProfile.findFirst({
-    where: {
-      id: listingId,
-      ownerId: session.user.id,
-      deletedAt: null,
-    },
-    include: {
-      category: true,
-      city: true,
-      phoneNumbers: {
-        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    const existing = await prisma.businessProfile.findFirst({
+      where: { id: listingId, ownerId: session.user.id, deletedAt: null },
+      include: {
+        category: true,
+        city: true,
+        phoneNumbers: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+        },
+        workingHours: { orderBy: { dayOfWeek: "asc" } },
+        socialLinks: { orderBy: { createdAt: "asc" } },
       },
-      workingHours: {
-        orderBy: { dayOfWeek: "asc" },
-      },
-      socialLinks: {
-        orderBy: { createdAt: "asc" },
-      },
-    },
-  });
+    });
 
-  if (!existing) {
-    throw new Error("Listing not found");
-  }
+    if (!existing) throw new NotFoundError("القائمة");
 
-  if (step === "basic") {
-    const data = UpdateBasicInfoSchema.parse(rawData);
+    // ── basic ────────────────────────────────────────────────────────────────
+    if (step === "basic") {
+      const data = UpdateBasicInfoSchema.parse(rawData);
 
-    await validateCategoryAndSubcategory(data.categoryId, data.subcategoryId);
+      await validateCategoryAndSubcategory(data.categoryId, data.subcategoryId);
 
-    const nextSlug =
-      data.nameAr !== existing.nameAr
-        ? await generateSlug(data.nameAr, existing.id)
-        : existing.slug;
+      const nextSlug =
+        data.nameAr !== existing.nameAr
+          ? await generateSlug(data.nameAr, existing.id)
+          : existing.slug;
 
-    const updated = await prisma.businessProfile.update({
-      where: { id: existing.id },
-      data: {
-        nameAr: data.nameAr,
-        nameEn: data.nameEn || null,
-        descriptionAr: data.descriptionAr || null,
-        descriptionEn: data.descriptionEn || null,
-        categoryId: data.categoryId,
-        subcategoryId: data.subcategoryId || null,
-        cityId: data.cityId,
-        slug: nextSlug,
-        searchableText: buildSearchableText({
+      const updated = await prisma.businessProfile.update({
+        where: { id: existing.id },
+        data: {
           nameAr: data.nameAr,
           nameEn: data.nameEn || null,
           descriptionAr: data.descriptionAr || null,
-          addressAr: existing.addressAr,
-        }),
-      },
-      include: {
-        city: true,
-        category: true,
-      },
-    });
-
-    const diff = buildJsonDiff(
-      {
-        nameAr: existing.nameAr,
-        nameEn: existing.nameEn,
-        descriptionAr: existing.descriptionAr,
-        descriptionEn: existing.descriptionEn,
-        categoryId: existing.categoryId,
-        subcategoryId: existing.subcategoryId,
-        cityId: existing.cityId,
-        slug: existing.slug,
-      },
-      {
-        nameAr: updated.nameAr,
-        nameEn: updated.nameEn,
-        descriptionAr: updated.descriptionAr,
-        descriptionEn: updated.descriptionEn,
-        categoryId: updated.categoryId,
-        subcategoryId: updated.subcategoryId,
-        cityId: updated.cityId,
-        slug: updated.slug,
-      },
-    );
-
-    writeAuditLog({
-      actorId: session.user.id,
-      actorEmail: session.user.email ?? null,
-      actorRole: session.user.role,
-      action: "LISTING_UPDATED",
-      entityType: "BusinessProfile",
-      entityId: existing.id,
-      previousValues: diff,
-      newValues: diff,
-    });
-
-    await revalidateListingPublicPaths(updated);
-
-    return { ok: true, slug: updated.slug };
-  }
-
-  if (step === "contact") {
-    const data = UpdateContactSchema.parse(rawData);
-
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.businessProfile.update({
-        where: { id: existing.id },
-        data: {
-          addressAr: data.addressAr || null,
-          addressEn: data.addressEn || null,
-          latitude: data.latitude ?? null,
-          longitude: data.longitude ?? null,
+          descriptionEn: data.descriptionEn || null,
+          categoryId: data.categoryId,
+          subcategoryId: data.subcategoryId || null,
+          cityId: data.cityId,
+          slug: nextSlug,
           searchableText: buildSearchableText({
-            nameAr: existing.nameAr,
-            nameEn: existing.nameEn,
-            descriptionAr: existing.descriptionAr,
-            addressAr: data.addressAr || null,
+            nameAr: data.nameAr,
+            nameEn: data.nameEn || null,
+            descriptionAr: data.descriptionAr || null,
+            addressAr: existing.addressAr,
           }),
         },
+        include: { city: true, category: true },
       });
 
-      await tx.phoneNumber.deleteMany({
-        where: {
-          businessId: existing.id,
+      const diff = buildJsonDiff(
+        {
+          nameAr: existing.nameAr,
+          nameEn: existing.nameEn,
+          descriptionAr: existing.descriptionAr,
+          descriptionEn: existing.descriptionEn,
+          categoryId: existing.categoryId,
+          subcategoryId: existing.subcategoryId,
+          cityId: existing.cityId,
+          slug: existing.slug,
         },
+        {
+          nameAr: updated.nameAr,
+          nameEn: updated.nameEn,
+          descriptionAr: updated.descriptionAr,
+          descriptionEn: updated.descriptionEn,
+          categoryId: updated.categoryId,
+          subcategoryId: updated.subcategoryId,
+          cityId: updated.cityId,
+          slug: updated.slug,
+        },
+      );
+
+      writeAuditLog({
+        actorId: session.user.id,
+        actorEmail: session.user.email ?? null,
+        actorRole: session.user.role,
+        action: "LISTING_UPDATED",
+        entityType: "BusinessProfile",
+        entityId: existing.id,
+        previousValues: diff,
+        newValues: diff,
       });
 
-      await tx.phoneNumber.createMany({
-        data: data.phones.map((phone, index) => ({
-          businessId: existing.id,
-          label: phone.label,
-          number: phone.number,
-          isPrimary: phone.isPrimary || index === 0,
-        })),
-      });
+      await revalidateListingPublicPaths(updated);
 
-      return tx.businessProfile.findUniqueOrThrow({
-        where: { id: existing.id },
-        include: {
-          city: true,
-          category: true,
-          phoneNumbers: {
-            orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      return actionSuccess({ slug: updated.slug });
+    }
+
+    // ── contact ──────────────────────────────────────────────────────────────
+    if (step === "contact") {
+      const data = UpdateContactSchema.parse(rawData);
+
+      const updated = await prisma.$transaction(async (tx) => {
+        await tx.businessProfile.update({
+          where: { id: existing.id },
+          data: {
+            addressAr: data.addressAr || null,
+            addressEn: data.addressEn || null,
+            latitude: data.latitude ?? null,
+            longitude: data.longitude ?? null,
+            searchableText: buildSearchableText({
+              nameAr: existing.nameAr,
+              nameEn: existing.nameEn,
+              descriptionAr: existing.descriptionAr,
+              addressAr: data.addressAr || null,
+            }),
           },
-        },
+        });
+
+        await tx.phoneNumber.deleteMany({ where: { businessId: existing.id } });
+
+        await tx.phoneNumber.createMany({
+          data: data.phones.map((phone, index) => ({
+            businessId: existing.id,
+            label: phone.label,
+            number: phone.number,
+            isPrimary: phone.isPrimary || index === 0,
+          })),
+        });
+
+        return tx.businessProfile.findUniqueOrThrow({
+          where: { id: existing.id },
+          include: {
+            city: true,
+            category: true,
+            phoneNumbers: {
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+            },
+          },
+        });
       });
+
+      const diff = buildJsonDiff(
+        {
+          addressAr: existing.addressAr,
+          addressEn: existing.addressEn,
+          latitude: existing.latitude,
+          longitude: existing.longitude,
+          phones: existing.phoneNumbers.map((p) => ({
+            label: p.label,
+            number: p.number,
+            isPrimary: p.isPrimary,
+          })),
+        },
+        {
+          addressAr: updated.addressAr,
+          addressEn: updated.addressEn,
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+          phones: updated.phoneNumbers.map((p) => ({
+            label: p.label,
+            number: p.number,
+            isPrimary: p.isPrimary,
+          })),
+        },
+      );
+
+      writeAuditLog({
+        actorId: session.user.id,
+        actorEmail: session.user.email ?? null,
+        actorRole: session.user.role,
+        action: "LISTING_UPDATED",
+        entityType: "BusinessProfile",
+        entityId: existing.id,
+        previousValues: diff,
+        newValues: diff,
+      });
+
+      await revalidateListingPublicPaths(updated);
+
+      return actionSuccess({});
+    }
+
+    // ── hours ────────────────────────────────────────────────────────────────
+    if (step === "hours") {
+      const data = UpdateHoursSchema.parse(rawData);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.workingHours.deleteMany({
+          where: { businessId: existing.id },
+        });
+
+        await tx.workingHours.createMany({
+          data: data.hours.map((hour) => ({
+            businessId: existing.id,
+            dayOfWeek: hour.dayOfWeek,
+            isClosed: hour.isClosed,
+            openTime: hour.isClosed ? null : hour.openTime,
+            closeTime: hour.isClosed ? null : hour.closeTime,
+          })),
+        });
+      });
+
+      writeAuditLog({
+        actorId: session.user.id,
+        actorEmail: session.user.email ?? null,
+        actorRole: session.user.role,
+        action: "LISTING_UPDATED",
+        entityType: "BusinessProfile",
+        entityId: existing.id,
+        newValues: { hours: data.hours },
+      });
+
+      const refreshed = await prisma.businessProfile.findUniqueOrThrow({
+        where: { id: existing.id },
+        include: { city: true, category: true },
+      });
+
+      await revalidateListingPublicPaths(refreshed);
+
+      return actionSuccess({});
+    }
+
+    // ── social ───────────────────────────────────────────────────────────────
+    if (step === "social") {
+      const data = UpdateSocialSchema.parse(rawData);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.socialLink.deleteMany({ where: { businessId: existing.id } });
+
+        await tx.socialLink.createMany({
+          data: data.socialLinks.map((social) => ({
+            businessId: existing.id,
+            platform: social.platform,
+            url: social.url,
+          })),
+        });
+      });
+
+      writeAuditLog({
+        actorId: session.user.id,
+        actorEmail: session.user.email ?? null,
+        actorRole: session.user.role,
+        action: "LISTING_UPDATED",
+        entityType: "BusinessProfile",
+        entityId: existing.id,
+        newValues: { socialLinks: data.socialLinks },
+      });
+
+      const refreshed = await prisma.businessProfile.findUniqueOrThrow({
+        where: { id: existing.id },
+        include: { city: true, category: true },
+      });
+
+      await revalidateListingPublicPaths(refreshed);
+
+      return actionSuccess({});
+    }
+
+    // Unreachable if TypeScript types are correct, but guards against future drift
+    throw new ValidationError(`خطوة التحديث غير صالحة: ${step}`);
+  } catch (err) {
+    return actionError(
+      handleActionError(err),
+      ErrorCodes.SYSTEM_INTERNAL_ERROR,
+    );
+  }
+}
+
+// ─── submitListingAction ──────────────────────────────────────────────────────
+
+export async function submitListingAction(
+  listingId: string,
+): Promise<ActionResult<{ status: string }>> {
+  try {
+    const session = await requireVerifiedOwnerSession();
+
+    const listing = await prisma.businessProfile.findFirst({
+      where: { id: listingId, ownerId: session.user.id, deletedAt: null },
+      include: { city: true, category: true, phoneNumbers: true },
     });
 
-    const diff = buildJsonDiff(
-      {
-        addressAr: existing.addressAr,
-        addressEn: existing.addressEn,
-        latitude: existing.latitude,
-        longitude: existing.longitude,
-        phones: existing.phoneNumbers.map((p) => ({
-          label: p.label,
-          number: p.number,
-          isPrimary: p.isPrimary,
-        })),
+    if (!listing) throw new NotFoundError("القائمة");
+
+    if (!canTransitionTo(listing.status, "ACTIVE")) {
+      throw new ValidationError(
+        `لا يمكن نشر القائمة من حالة "${listing.status}"`,
+        undefined,
+      );
+    }
+
+    if (!listing.nameAr || !listing.categoryId || !listing.cityId) {
+      throw new ValidationError(
+        "الحقول المطلوبة مفقودة: الاسم، التصنيف، المدينة",
+      );
+    }
+
+    if (listing.phoneNumbers.length === 0) {
+      throw new ValidationError("يجب إضافة رقم هاتف واحد على الأقل");
+    }
+
+    const updated = await prisma.businessProfile.update({
+      where: { id: listing.id },
+      data: {
+        status: "ACTIVE",
+        publishedAt: listing.publishedAt ?? new Date(),
       },
-      {
-        addressAr: updated.addressAr,
-        addressEn: updated.addressEn,
-        latitude: updated.latitude,
-        longitude: updated.longitude,
-        phones: updated.phoneNumbers.map((p) => ({
-          label: p.label,
-          number: p.number,
-          isPrimary: p.isPrimary,
-        })),
-      },
-    );
+      include: { city: true, category: true },
+    });
 
     writeAuditLog({
       actorId: session.user.id,
       actorEmail: session.user.email ?? null,
       actorRole: session.user.role,
-      action: "LISTING_UPDATED",
+      action: "LISTING_SUBMITTED",
       entityType: "BusinessProfile",
-      entityId: existing.id,
-      previousValues: diff,
-      newValues: diff,
+      entityId: updated.id,
+      previousValues: { status: listing.status },
+      newValues: { status: updated.status, publishedAt: updated.publishedAt },
     });
 
     await revalidateListingPublicPaths(updated);
 
-    return { ok: true };
+    return actionSuccess({ status: updated.status });
+  } catch (err) {
+    return actionError(
+      handleActionError(err),
+      ErrorCodes.SYSTEM_INTERNAL_ERROR,
+    );
   }
+}
 
-  if (step === "hours") {
-    const data = UpdateHoursSchema.parse(rawData);
+// ─── softDeleteListingAction ──────────────────────────────────────────────────
 
-    await prisma.$transaction(async (tx) => {
-      await tx.workingHours.deleteMany({
-        where: {
-          businessId: existing.id,
-        },
-      });
+export async function softDeleteListingAction(
+  listingId: string,
+): Promise<ActionResult> {
+  try {
+    const session = await auth();
 
-      await tx.workingHours.createMany({
-        data: data.hours.map((hour) => ({
-          businessId: existing.id,
-          dayOfWeek: hour.dayOfWeek,
-          isClosed: hour.isClosed,
-          openTime: hour.isClosed ? null : hour.openTime,
-          closeTime: hour.isClosed ? null : hour.closeTime,
-        })),
-      });
-    });
+    if (!session?.user?.id) throw new AuthError();
 
-    writeAuditLog({
-      actorId: session.user.id,
-      actorEmail: session.user.email ?? null,
-      actorRole: session.user.role,
-      action: "LISTING_UPDATED",
-      entityType: "BusinessProfile",
-      entityId: existing.id,
-      newValues: { hours: data.hours },
-    });
+    const isAdmin = ["ADMIN", "SUPERADMIN"].includes(session.user.role);
 
-    const refreshed = await prisma.businessProfile.findUniqueOrThrow({
-      where: { id: existing.id },
-      include: {
-        city: true,
-        category: true,
+    const listing = await prisma.businessProfile.findFirst({
+      where: {
+        id: listingId,
+        deletedAt: null,
+        // Admins can delete any listing; owners can only delete their own
+        ...(isAdmin ? {} : { ownerId: session.user.id }),
       },
+      include: { city: true, category: true },
     });
 
-    await revalidateListingPublicPaths(refreshed);
+    if (!listing) {
+      // If a non-admin tries to delete someone else's listing, show NotFound
+      // (never expose "this listing exists but belongs to someone else")
+      throw new NotFoundError("القائمة");
+    }
 
-    return { ok: true };
-  }
+    const deletedAt = new Date();
 
-  if (step === "social") {
-    const data = UpdateSocialSchema.parse(rawData);
-
-    await prisma.$transaction(async (tx) => {
-      await tx.socialLink.deleteMany({
-        where: {
-          businessId: existing.id,
-        },
-      });
-
-      await tx.socialLink.createMany({
-        data: data.socialLinks.map((social) => ({
-          businessId: existing.id,
-          platform: social.platform,
-          url: social.url,
-        })),
-      });
+    await prisma.businessProfile.update({
+      where: { id: listing.id },
+      data: { deletedAt, deletedBy: session.user.id },
     });
 
     writeAuditLog({
       actorId: session.user.id,
       actorEmail: session.user.email ?? null,
       actorRole: session.user.role,
-      action: "LISTING_UPDATED",
+      action: "LISTING_DELETED",
       entityType: "BusinessProfile",
-      entityId: existing.id,
+      entityId: listing.id,
+      previousValues: { deletedAt: null },
       newValues: {
-        socialLinks: data.socialLinks,
+        deletedAt: deletedAt.toISOString(),
+        deletedBy: session.user.id,
       },
     });
 
-    const refreshed = await prisma.businessProfile.findUniqueOrThrow({
-      where: { id: existing.id },
-      include: {
-        city: true,
-        category: true,
-      },
-    });
+    await invalidatePdfCache(listing.city.slug, listing.category.slug);
+    await revalidateListingPublicPaths(listing);
 
-    await revalidateListingPublicPaths(refreshed);
-
-    return { ok: true };
+    return actionSuccess(undefined);
+  } catch (err) {
+    return actionError(
+      handleActionError(err),
+      ErrorCodes.SYSTEM_INTERNAL_ERROR,
+    );
   }
-
-  throw new Error("Invalid update step");
-}
-
-export async function submitListingAction(listingId: string) {
-  const session = await requireVerifiedOwnerSession();
-
-  const listing = await prisma.businessProfile.findFirst({
-    where: {
-      id: listingId,
-      ownerId: session.user.id,
-      deletedAt: null,
-    },
-    include: {
-      city: true,
-      category: true,
-      phoneNumbers: true,
-    },
-  });
-
-  if (!listing) {
-    throw new Error("Listing not found");
-  }
-
-  if (!canTransitionTo(listing.status, "ACTIVE")) {
-    throw new Error("Listing cannot be submitted from current state");
-  }
-
-  if (!listing.nameAr || !listing.categoryId || !listing.cityId) {
-    throw new Error("Required listing fields are missing");
-  }
-
-  if (listing.phoneNumbers.length === 0) {
-    throw new Error("At least one phone number is required");
-  }
-
-  const updated = await prisma.businessProfile.update({
-    where: { id: listing.id },
-    data: {
-      status: "ACTIVE",
-      publishedAt: listing.publishedAt ?? new Date(),
-    },
-    include: {
-      city: true,
-      category: true,
-    },
-  });
-
-  writeAuditLog({
-    actorId: session.user.id,
-    actorEmail: session.user.email ?? null,
-    actorRole: session.user.role,
-    action: "LISTING_SUBMITTED",
-    entityType: "BusinessProfile",
-    entityId: updated.id,
-    previousValues: { status: listing.status },
-    newValues: {
-      status: updated.status,
-      publishedAt: updated.publishedAt,
-    },
-  });
-
-  await revalidateListingPublicPaths(updated);
-
-  return {
-    ok: true,
-    status: updated.status,
-  };
-}
-
-export async function softDeleteListingAction(listingId: string) {
-  const session = await auth();
-
-  if (!session?.user?.id) {
-    throw new Error("Unauthorized");
-  }
-
-  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes(session.user.role);
-
-  const listing = await prisma.businessProfile.findFirst({
-    where: {
-      id: listingId,
-      deletedAt: null,
-      ...(isAdmin ? {} : { ownerId: session.user.id }),
-    },
-    include: {
-      city: true,
-      category: true,
-    },
-  });
-
-  if (!listing) {
-    throw new Error("Listing not found");
-  }
-
-  const deletedAt = new Date();
-
-  await prisma.businessProfile.update({
-    where: { id: listing.id },
-    data: {
-      deletedAt,
-      deletedBy: session.user.id,
-    },
-  });
-
-  writeAuditLog({
-    actorId: session.user.id,
-    actorEmail: session.user.email ?? null,
-    actorRole: session.user.role,
-    action: "LISTING_DELETED",
-    entityType: "BusinessProfile",
-    entityId: listing.id,
-    previousValues: { deletedAt: null },
-    newValues: {
-      deletedAt: deletedAt.toISOString(),
-      deletedBy: session.user.id,
-    },
-  });
-
-  await invalidatePdfCache(listing.city.slug, listing.category.slug);
-  await revalidateListingPublicPaths(listing);
-
-  return { ok: true };
 }

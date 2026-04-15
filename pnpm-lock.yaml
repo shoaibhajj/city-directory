@@ -40,6 +40,9 @@ importers:
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
+      cloudinary:
+        specifier: ^2.9.0
+        version: 2.9.0
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -70,15 +73,24 @@ importers:
       react-dom:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
+      react-dropzone:
+        specifier: ^15.0.0
+        version: 15.0.0(react@19.2.4)
       react-hook-form:
         specifier: ^7.72.0
         version: 7.72.1(react@19.2.4)
+      react-image-crop:
+        specifier: ^11.0.10
+        version: 11.0.10(react@19.2.4)
       resend:
         specifier: ^6.10.0
         version: 6.10.0
       shadcn:
         specifier: ^4.1.1
         version: 4.1.2(@types/node@20.19.39)(typescript@5.9.3)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -116,6 +128,9 @@ importers:
       "@types/react-dom":
         specifier: ^19
         version: 19.2.3(@types/react@19.2.14)
+      "@types/react-image-crop":
+        specifier: ^9.0.2
+        version: 9.0.2(react@19.2.4)
       "@typescript-eslint/eslint-plugin":
         specifier: ^8.57.2
         version: 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
@@ -2748,6 +2763,13 @@ packages:
     peerDependencies:
       "@types/react": ^19.2.0
 
+  "@types/react-image-crop@9.0.2":
+    resolution:
+      {
+        integrity: sha512-gOa5G6CuPuRuvEfQty7Ho4GxsKNwRTdk2jwS/XmI3agPFvsVEmtxR9y3tt5Y3UNp4NkRHbnH4U4YLR04YlSARw==,
+      }
+    deprecated: This is a stub types definition. react-image-crop provides its own type definitions, so you do not need this installed.
+
   "@types/react@19.2.14":
     resolution:
       {
@@ -3239,6 +3261,13 @@ packages:
       }
     engines: { node: ">= 0.4" }
 
+  attr-accept@2.2.5:
+    resolution:
+      {
+        integrity: sha512-0bDNnY/u6pPwHDMoF0FieU354oBi0a8rD9FcsLwzcGWbc8KS8KPIi7y+s13OlVY+gMWc/9xEMUgNE6Qm8ZllYQ==,
+      }
+    engines: { node: ">=4" }
+
   available-typed-arrays@1.0.7:
     resolution:
       {
@@ -3461,6 +3490,13 @@ packages:
         integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==,
       }
     engines: { node: ">=12" }
+
+  cloudinary@2.9.0:
+    resolution:
+      {
+        integrity: sha512-F3iKMOy4y0zy0bi5JBp94SC7HY7i/ImfTPSUV07iJmRzH1Iz8WavFfOlJTR1zvYM/xKGoiGZ3my/zy64In0IQQ==,
+      }
+    engines: { node: ">=9" }
 
   clsx@2.1.1:
     resolution:
@@ -4360,6 +4396,13 @@ packages:
         integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==,
       }
     engines: { node: ">=16.0.0" }
+
+  file-selector@2.1.2:
+    resolution:
+      {
+        integrity: sha512-QgXo+mXTe8ljeqUFaX3QVHc5osSItJ/Km+xpocx0aSqWGMSCf6qYs/VnzZgS864Pjn5iceMRFigeAV7AfTlaig==,
+      }
+    engines: { node: ">= 12" }
 
   fill-range@7.1.1:
     resolution:
@@ -5461,6 +5504,12 @@ packages:
         integrity: sha512-sReKOYJIJf74dhJONhU4e0/shzi1trVbSWDOhKYE5XV2O+H7Sb2Dihwuc7xWxVl+DgFPyTqIN3zMfT9cq5iWDg==,
       }
 
+  lodash@4.18.1:
+    resolution:
+      {
+        integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==,
+      }
+
   log-symbols@6.0.0:
     resolution:
       {
@@ -6245,6 +6294,15 @@ packages:
     peerDependencies:
       react: ^19.2.4
 
+  react-dropzone@15.0.0:
+    resolution:
+      {
+        integrity: sha512-lGjYV/EoqEjEWPnmiSvH4v5IoIAwQM2W4Z1C0Q/Pw2xD0eVzKPS359BQTUMum+1fa0kH2nrKjuavmTPOGhpLPg==,
+      }
+    engines: { node: ">= 10.13" }
+    peerDependencies:
+      react: ">= 16.8 || 18.0.0"
+
   react-hook-form@7.72.1:
     resolution:
       {
@@ -6253,6 +6311,14 @@ packages:
     engines: { node: ">=18.0.0" }
     peerDependencies:
       react: ^16.8.0 || ^17 || ^18 || ^19
+
+  react-image-crop@11.0.10:
+    resolution:
+      {
+        integrity: sha512-+5FfDXUgYLLqBh1Y/uQhIycpHCbXkI50a+nbfkB1C0xXXUTwkisHDo2QCB1SQJyHCqIuia4FeyReqXuMDKWQTQ==,
+      }
+    peerDependencies:
+      react: ">=16.13.1"
 
   react-is@16.13.1:
     resolution:
@@ -7861,8 +7927,7 @@ snapshots:
 
   "@humanwhocodes/retry@0.4.3": {}
 
-  "@img/colour@1.1.0":
-    optional: true
+  "@img/colour@1.1.0": {}
 
   "@img/sharp-darwin-arm64@0.34.5":
     optionalDependencies:
@@ -9143,6 +9208,12 @@ snapshots:
     dependencies:
       "@types/react": 19.2.14
 
+  "@types/react-image-crop@9.0.2(react@19.2.4)":
+    dependencies:
+      react-image-crop: 11.0.10(react@19.2.4)
+    transitivePeerDependencies:
+      - react
+
   "@types/react@19.2.14":
     dependencies:
       csstype: 3.2.3
@@ -9450,6 +9521,8 @@ snapshots:
 
   async-function@1.0.0: {}
 
+  attr-accept@2.2.5: {}
+
   available-typed-arrays@1.0.7:
     dependencies:
       possible-typed-array-names: 1.1.0
@@ -9584,6 +9657,10 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
+
+  cloudinary@2.9.0:
+    dependencies:
+      lodash: 4.18.1
 
   clsx@2.1.1: {}
 
@@ -10247,6 +10324,10 @@ snapshots:
     dependencies:
       flat-cache: 4.0.1
 
+  file-selector@2.1.2:
+    dependencies:
+      tslib: 2.8.1
+
   fill-range@7.1.1:
     dependencies:
       to-regex-range: 5.0.1
@@ -10810,6 +10891,8 @@ snapshots:
 
   lodash.upperfirst@4.3.1: {}
 
+  lodash@4.18.1: {}
+
   log-symbols@6.0.0:
     dependencies:
       chalk: 5.6.2
@@ -11318,7 +11401,18 @@ snapshots:
       react: 19.2.4
       scheduler: 0.27.0
 
+  react-dropzone@15.0.0(react@19.2.4):
+    dependencies:
+      attr-accept: 2.2.5
+      file-selector: 2.1.2
+      prop-types: 15.8.1
+      react: 19.2.4
+
   react-hook-form@7.72.1(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+
+  react-image-crop@11.0.10(react@19.2.4):
     dependencies:
       react: 19.2.4
 
@@ -11583,7 +11677,6 @@ snapshots:
       "@img/sharp-win32-arm64": 0.34.5
       "@img/sharp-win32-ia32": 0.34.5
       "@img/sharp-win32-x64": 0.34.5
-    optional: true
 
   shebang-command@2.0.0:
     dependencies:
