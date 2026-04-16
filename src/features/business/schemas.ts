@@ -70,9 +70,15 @@ export const UpdateSocialSchema = z.object({
   socialLinks: z.array(SocialLinkSchema).max(10),
 });
 
+export const SearchSchema = z.object({
+  query: z.string().min(2).max(100),
+  citySlug: z.string().max(100).default("al-nabik"),
+});
+
 // Use z.input for RHF resolver compatibility (pre-transform types)
 export type CreateListingInput = z.input<typeof CreateListingSchema>;
 export type UpdateBasicInfoInput = z.input<typeof UpdateBasicInfoSchema>;
 export type UpdateContactInput = z.input<typeof UpdateContactSchema>;
 export type UpdateHoursInput = z.input<typeof UpdateHoursSchema>;
 export type UpdateSocialInput = z.input<typeof UpdateSocialSchema>;
+export type SearchInput = z.input<typeof SearchSchema>;

@@ -124,5 +124,21 @@
     },
     "videoReviewNotice": "Video will appear after admin approval",
     "deleteConfirm": "Are you sure you want to delete this file? This cannot be undone."
+  },
+  "search": {
+    "placeholder": "Search for a business...",
+    "noResults": "No results found",
+    "resultsCount": "{count} result",
+    "resultsCount_plural": "{count} results"
+  },
+  "directory": {
+    "title": "Directory",
+    "categories": "Categories",
+    "featured": "Featured",
+    "allCategories": "All Categories",
+    "subcategory": "Subcategory",
+    "allSubcategories": "All Subcategories",
+    "noListings": "No businesses in this category",
+    "filterBySubcategory": "Filter by subcategory"
   }
 }

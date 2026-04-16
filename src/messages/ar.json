@@ -124,5 +124,21 @@
     },
     "videoReviewNotice": "يظهر الفيديو للزوار بعد موافقة المشرف",
     "deleteConfirm": "هل أنت متأكد من حذف هذا الملف؟ لا يمكن التراجع عن هذا الإجراء."
+  },
+  "search": {
+    "placeholder": "ابحث عن نشاط تجاري...",
+    "noResults": "لا توجد نتائج",
+    "resultsCount": "{count} نتيجة",
+    "resultsCount_plural": "{count} نتائج"
+  },
+  "directory": {
+    "title": "الدليل",
+    "categories": "التصنيفات",
+    "featured": "المميز",
+    "allCategories": "كل التصنيفات",
+    "subcategory": "التصنيف الفرعي",
+    "allSubcategories": "كل التصنيفات الفرعية",
+    "noListings": "لا توجد نشاطات تجارية في هذا التصنيف",
+    "filterBySubcategory": "تصفية حسب التصنيف الفرعي"
   }
 }

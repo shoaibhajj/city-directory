@@ -93,6 +93,8 @@ type PublicListingFilters = {
   limit?: number;
 };
 
+export type { PublicListingFilters };
+
 export async function getPublicListings(filters: PublicListingFilters) {
   const page = filters.page ?? 1;
   const limit = filters.limit ?? 20;
@@ -114,13 +116,14 @@ export async function getPublicListings(filters: PublicListingFilters) {
     include: {
       category: true,
       city: true,
+      subcategory: true,
       phoneNumbers: {
         take: 1,
         orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       },
       mediaFiles: {
         where: {
-          type: "IMAGE",
+          OR: [{ type: "COVER" }, { type: "PHOTO" }, { type: "IMAGE" }],
           status: "APPROVED",
         },
         take: 1,
@@ -137,6 +140,100 @@ export async function getPublicListings(filters: PublicListingFilters) {
   });
 }
 
-export async function searchListings() {
-  throw new Error("searchListings will be implemented in Phase 6");
+// Search businesses by name or description
+// Uses pg_trgm index for fuzzy search
+export async function searchListings({
+  query,
+  citySlug = "al-nabik",
+  limit = 20,
+}: {
+  query: string;
+  citySlug?: string;
+  limit?: number;
+}): Promise<
+  Awaited<
+    ReturnType<typeof getPublicListings>
+  >
+> {
+  if (!query || query.trim().length < 2) {
+    return [];
+  }
+
+  const searchTerm = query.trim();
+
+  return prisma.businessProfile.findMany({
+    where: {
+      status: "ACTIVE",
+      deletedAt: null,
+      city: { slug: citySlug },
+      OR: [
+        { nameAr: { contains: searchTerm, mode: "insensitive" } },
+        { nameEn: { contains: searchTerm, mode: "insensitive" } },
+        { descriptionAr: { contains: searchTerm, mode: "insensitive" } },
+        { descriptionEn: { contains: searchTerm, mode: "insensitive" } },
+      ],
+    },
+    include: {
+      category: true,
+      city: true,
+      subcategory: true,
+      phoneNumbers: {
+        take: 1,
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      },
+      mediaFiles: {
+        where: {
+          OR: [{ type: "COVER" }, { type: "PHOTO" }, { type: "IMAGE" }],
+          status: "APPROVED",
+        },
+        take: 1,
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      },
+    },
+    orderBy: [
+      { isVerified: "desc" },
+      { viewCount: "desc" },
+    ],
+    take: limit,
+  });
+}
+
+// Get featured/popular listings for homepage
+export async function getFeaturedListings({
+  citySlug = "al-nabik",
+  limit = 6,
+}: {
+  citySlug?: string;
+  limit?: number;
+}) {
+  return prisma.businessProfile.findMany({
+    where: {
+      status: "ACTIVE",
+      deletedAt: null,
+      city: { slug: citySlug },
+    },
+    include: {
+      category: true,
+      city: true,
+      subcategory: true,
+      phoneNumbers: {
+        take: 1,
+        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+      },
+      mediaFiles: {
+        where: {
+          OR: [{ type: "COVER" }, { type: "PHOTO" }],
+          status: "APPROVED",
+        },
+        take: 1,
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+      },
+    },
+    orderBy: [
+      { isVerified: "desc" },
+      { viewCount: "desc" },
+      { publishedAt: "desc" },
+    ],
+    take: limit,
+  });
 }

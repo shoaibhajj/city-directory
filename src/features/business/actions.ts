@@ -13,6 +13,7 @@ import {
   UpdateContactSchema,
   UpdateHoursSchema,
   UpdateSocialSchema,
+  SearchSchema,
 } from "./schemas";
 import {
   buildBusinessPath,
@@ -598,6 +599,31 @@ export async function softDeleteListingAction(
     await revalidateListingPublicPaths(listing);
 
     return actionSuccess(undefined);
+  } catch (err) {
+    return actionError(
+      handleActionError(err),
+      ErrorCodes.SYSTEM_INTERNAL_ERROR,
+    );
+  }
+}
+
+// ─── searchListingsAction ─────────────────────────────────────────────────
+// Public search action - no auth required
+export async function searchListingsAction(
+  rawData: unknown,
+): Promise<ActionResult<{ results: unknown[] }>> {
+  try {
+    // Validation - search query must be at least 2 characters
+    const parsed = SearchSchema.safeParse(rawData);
+    if (!parsed.success) {
+      throw new ValidationError("يجب أن يكون البحث حرفين على الأقل");
+    }
+    const { query, citySlug = "al-nabik" } = parsed.data;
+
+    const { searchListings } = await import("./queries");
+    const results = await searchListings({ query, citySlug });
+
+    return actionSuccess({ results });
   } catch (err) {
     return actionError(
       handleActionError(err),
