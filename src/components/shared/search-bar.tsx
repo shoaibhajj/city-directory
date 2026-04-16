@@ -87,9 +87,7 @@ export function SearchBar() {
                     onClick={() => setIsOpen(false)}
                     className="block p-4 hover:bg-muted transition-colors border-b last:border-b-0"
                   >
-                    <div className="font-medium">
-                      {l.nameEn || l.nameAr}
-                    </div>
+                    <div className="font-medium">{l.nameEn || l.nameAr}</div>
                     <div className="text-sm text-gray-500">
                       {l.category.slug}
                     </div>

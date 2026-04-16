@@ -38,7 +38,8 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   });
 
   const categoryName = locale === "ar" ? category.nameAr : category.nameEn;
-  const hasSubcategories = category.subcategories && category.subcategories.length > 0;
+  const hasSubcategories =
+    category.subcategories && category.subcategories.length > 0;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -112,7 +113,9 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
               {/* Content */}
               <div className="p-4">
                 <h3 className="font-semibold text-lg mb-1">
-                  {locale === "ar" ? listing.nameAr : listing.nameEn || listing.nameAr}
+                  {locale === "ar"
+                    ? listing.nameAr
+                    : listing.nameEn || listing.nameAr}
                 </h3>
                 <p className="text-sm text-gray-500">
                   {listing.category.nameAr}

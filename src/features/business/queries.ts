@@ -150,11 +150,7 @@ export async function searchListings({
   query: string;
   citySlug?: string;
   limit?: number;
-}): Promise<
-  Awaited<
-    ReturnType<typeof getPublicListings>
-  >
-> {
+}): Promise<Awaited<ReturnType<typeof getPublicListings>>> {
   if (!query || query.trim().length < 2) {
     return [];
   }
@@ -190,10 +186,7 @@ export async function searchListings({
         orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
       },
     },
-    orderBy: [
-      { isVerified: "desc" },
-      { viewCount: "desc" },
-    ],
+    orderBy: [{ isVerified: "desc" }, { viewCount: "desc" }],
     take: limit,
   });
 }

@@ -107,7 +107,9 @@ export default async function HomePage({
                   </div>
                   <div className="p-4">
                     <h3 className="font-semibold">
-                      {locale === "ar" ? listing.nameAr : listing.nameEn || listing.nameAr}
+                      {locale === "ar"
+                        ? listing.nameAr
+                        : listing.nameEn || listing.nameAr}
                     </h3>
                     <p className="text-sm text-gray-500">
                       {listing.category.nameAr}
