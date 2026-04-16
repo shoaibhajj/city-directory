@@ -63,33 +63,42 @@ const SOCIAL_LABEL: Record<string, string> = {
 };
 
 // ─── generateStaticParams ─────────────────────────────────────────────────────
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
-  const listings = await prisma.businessProfile.findMany({
-    where: { status: "ACTIVE", deletedAt: null },
-    select: {
-      slug: true,
-      city: { select: { slug: true } },
-      category: { select: { slug: true } },
-    },
-    orderBy: { viewCount: "desc" },
-    take: 100,
-  });
+  try {
+    const listings = await prisma.businessProfile.findMany({
+      where: { status: "ACTIVE", deletedAt: null },
+      select: {
+        slug: true,
+        city: { select: { slug: true } },
+        category: { select: { slug: true } },
+      },
+      orderBy: { viewCount: "desc" },
+      take: 100,
+    });
 
-  return listings.flatMap((l) => [
-    {
-      locale: "ar",
-      citySlug: l.city.slug,
-      categorySlug: l.category.slug,
-      businessSlug: l.slug,
-    },
-    {
-      locale: "en",
-      citySlug: l.city.slug,
-      categorySlug: l.category.slug,
-      businessSlug: l.slug,
-    },
-  ]);
+    return listings.flatMap((l) => [
+      {
+        locale: "ar",
+        citySlug: l.city.slug,
+        categorySlug: l.category.slug,
+        businessSlug: l.slug,
+      },
+      {
+        locale: "en",
+        citySlug: l.city.slug,
+        categorySlug: l.category.slug,
+        businessSlug: l.slug,
+      },
+    ]);
+  } catch (error) {
+    console.warn(
+      "generateStaticParams: DB unreachable at build time, pages will render on first request via ISR:",
+      error,
+    );
+    return [];
+  }
 }
 
 // ─── generateMetadata ─────────────────────────────────────────────────────────
