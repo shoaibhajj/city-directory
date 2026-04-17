@@ -2,7 +2,6 @@
 // Location: root of project
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
-
 import "./src/env";
 
 // createNextIntlPlugin wraps your Next.js config with i18n support
@@ -21,6 +20,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     typedRoutes: true,
+    middlewarePrefetch: "strict",
   },
 };
 
