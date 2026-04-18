@@ -2,6 +2,7 @@
 // Homepage - shows hero, categories, and featured listings
 
 import Image from "next/image";
+import { Metadata } from "next";
 import { getAllCategories } from "@/features/categories/queries";
 import { getFeaturedListings } from "@/features/business/queries";
 import { getTranslations } from "next-intl/server";
@@ -16,6 +17,42 @@ export async function generateStaticParams() {
     { locale: "ar" },
     { locale: "en" },
   ];
+}
+
+// ─── Metadata ─────────────────────────────────────────────────────────────────
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  
+  return {
+    title: locale === "ar" 
+      ? "دليل المدن - دليل النبك" 
+      : "City Directory - Al-Nabik",
+    description: locale === "ar"
+      ? "دليل شامل للمؤسسات التجارية والخدمات في مدينة النبك"
+      : "Comprehensive directory of businesses and services in Al-Nabik",
+    openGraph: {
+      title: locale === "ar" 
+        ? "دليل المدن - دليل النبك" 
+        : "City Directory - Al-Nabik",
+      description: locale === "ar"
+        ? "اكتشف أفضل المؤسسات التجارية في النبك"
+        : "Discover the best businesses in Al-Nabik",
+      url: `https://city-directory.com/${locale}`,
+      siteName: "دليل المدن",
+      locale: locale === "ar" ? "ar_SA" : "en_US",
+      type: "website",
+    },
+    alternates: {
+      languages: {
+        ar: "https://city-directory.com/ar",
+        en: "https://city-directory.com/en",
+      },
+    },
+  };
 }
 
 export default async function HomePage({
@@ -73,6 +110,18 @@ export default async function HomePage({
                 )}
               </Link>
             ))}
+          </div>
+          
+          {/* Download PDF Button */}
+          <div className="mt-8 text-center">
+            <a
+              href={`/api/pdf/al-nabik/all?locale=${locale}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              📄 {tDir("downloadPdf") || "تحميل دليل PDF"}
+            </a>
           </div>
         </div>
       </section>

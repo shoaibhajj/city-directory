@@ -106,7 +106,20 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           <p>{t("noListings")}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <>
+          {/* Download PDF Button */}
+          <div className="mb-6 text-end">
+            <a
+              href={`/api/pdf/${citySlug}/${categorySlug}?locale=${locale}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+            >
+              📄 {t("downloadPdf") || "تحميل PDF"}
+            </a>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {listings.map((listing) => (
             <Link
               key={listing.id}
@@ -155,6 +168,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
             </Link>
           ))}
         </div>
+        </>
       )}
     </div>
   );

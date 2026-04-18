@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { NotificationType } from "@prisma/client";
+import { Resend } from "resend";
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 type NotificationData = Record<string, unknown>;
+
+const FROM_EMAIL = process.env.EMAIL_FROM || "noreply@city-directory.com";
 
 /** Maps each NotificationType to Arabic title + message for the DB record. */
 function buildContent(
@@ -58,25 +63,20 @@ function buildContent(
 }
 
 /**
- * Phase 9 stub — creates the Notification DB record for the in-app center.
- *
- * Phase 9 will add on top of this (no breaking changes to signature):
- *   - Fetch user language preference
- *   - Select bilingual email template
- *   - Dispatch via Resend with retry + Sentry fallback
- *   - Update notification.sentAt on success
- *
- * MUST be called fire-and-forget: never await this in a critical path.
+ * Sends a notification to a user - creates in-app notification and optionally sends email.
+ * 
+ * This is fire-and-forget: never await this in a critical path.
  * A notification failure must never crash a listing action.
  */
-export function sendNotification(
+export async function sendNotification(
   userId: string,
   type: NotificationType,
   data: NotificationData = {},
-): void {
+): Promise<void> {
   const { title, message } = buildContent(type, data);
 
-  prisma.notification
+  // Create in-app notification
+  const notification = await prisma.notification
     .create({
       data: {
         userId,
@@ -84,11 +84,121 @@ export function sendNotification(
         title,
         message,
         isRead: false,
-        data: data as never, // Prisma Json field
+        data: data as never,
       },
     })
     .catch((err) => {
-      // Never propagate — notification failure is non-fatal
       console.error("[Notification] Failed to create DB record:", err);
+      return null;
     });
+
+  if (!notification) return;
+
+  // Send email if Resend is configured
+  if (!resend) {
+    console.warn("[Notification] RESEND_API_KEY not set, skipping email");
+    return undefined;
+  }
+
+  // Get user email
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+
+  if (!user?.email) {
+    console.warn("[Notification] User has no email, skipping email send");
+    return;
+  }
+
+  // Build email subject and content based on type
+  const emailSubject = `[دليل المدن] ${title}`;
+  const emailHtml = buildEmailHtml(type, data, title, message, user.name);
+
+  // Send email with retry
+  await sendEmailWithRetry(user.email, emailSubject, emailHtml);
+
+  // Update sentAt timestamp
+  await prisma.notification.update({
+    where: { id: notification.id },
+    data: { sentAt: new Date() },
+  });
+}
+
+async function sendEmailWithRetry(
+  to: string,
+  subject: string,
+  html: string,
+  retries = 3
+): Promise<void> {
+  if (!resend) return;
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to,
+        subject,
+        html,
+      });
+      console.log(`[Notification] Email sent to ${to}`);
+      return;
+    } catch (error) {
+      console.error(`[Notification] Email send attempt ${attempt} failed:`, error);
+      if (attempt === retries) {
+        console.error(`[Notification] All ${retries} email send attempts failed`);
+      } else {
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+      }
+    }
+  }
+}
+
+function buildEmailHtml(
+  type: NotificationType,
+  data: NotificationData,
+  title: string,
+  message: string,
+  userName: string | null
+): string {
+  const listingUrl = data.listingId 
+    ? `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/ar/al-nabik/${data.categorySlug || 'general'}/${data.listingSlug || ''}`
+    : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    
+  const actionButton = type !== 'EMAIL_VERIFIED' ? `
+    <div style="text-align: center; margin: 24px 0;">
+      <a href="${listingUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+        عرض التفاصيل
+      </a>
+    </div>
+  ` : '';
+
+  return `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa; margin: 0; padding: 20px;">
+      <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="background: #2563eb; color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">دليل المدن</h1>
+        </div>
+        <div style="padding: 30px;">
+          <h2 style="color: #1f2937; margin-top: 0;">${title}</h2>
+          <p style="color: #4b5563; line-height: 1.6;">${message}</p>
+          ${actionButton}
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+            تم إرسال هذه الرسالة إلى ${userName || 'المستخدم'} لأنك اشتركت في إشعارات دليل المدن.
+            <br>
+            © ${new Date().getFullYear()} دليل المدن - دليل النبك
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
 }

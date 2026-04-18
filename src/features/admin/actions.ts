@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect as _redirect } from "@/i18n/navigation";
 import type { Role } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
+import { sendNotification } from "@/features/notifications/sender";
 
 const ADMIN_METRICS_KEY = "admin:metrics";
 
@@ -29,6 +30,12 @@ async function invalidateCache() {
 export async function suspendListingAction(listingId: string, reason: string) {
   const session = await requireAdmin();
 
+  // Get listing info for notification
+  const listing = await prisma.businessProfile.findUnique({
+    where: { id: listingId },
+    select: { nameAr: true, ownerId: true, categoryId: true },
+  });
+
   // Update listing status
   await prisma.businessProfile.update({
     where: { id: listingId },
@@ -45,12 +52,27 @@ export async function suspendListingAction(listingId: string, reason: string) {
     newValues: { status: "SUSPENDED", reason },
   });
 
+  // Send notification (fire-and-forget)
+  if (listing?.ownerId) {
+    sendNotification(listing.ownerId, "LISTING_SUSPENDED", {
+      listingName: listing.nameAr,
+      reason,
+      listingId,
+    }).catch(console.error);
+  }
+
   await invalidateCache();
   revalidatePath("/[locale]/admin/listings");
 }
 
 export async function restoreListingAction(listingId: string) {
   const session = await requireAdmin();
+
+  // Get listing info for notification
+  const listing = await prisma.businessProfile.findUnique({
+    where: { id: listingId },
+    select: { nameAr: true, ownerId: true, categoryId: true },
+  });
 
   // Restore listing status
   await prisma.businessProfile.update({
@@ -68,12 +90,26 @@ export async function restoreListingAction(listingId: string) {
     newValues: { status: "ACTIVE" },
   });
 
+  // Send notification (fire-and-forget)
+  if (listing?.ownerId) {
+    sendNotification(listing.ownerId, "LISTING_RESTORED", {
+      listingName: listing.nameAr,
+      listingId,
+    }).catch(console.error);
+  }
+
   await invalidateCache();
   revalidatePath("/[locale]/admin/listings");
 }
 
 export async function grantVerificationAction(listingId: string) {
   const session = await requireAdmin();
+
+  // Get listing info for notification
+  const listing = await prisma.businessProfile.findUnique({
+    where: { id: listingId },
+    select: { nameAr: true, ownerId: true, categoryId: true },
+  });
 
   // Grant verification
   await prisma.businessProfile.update({
@@ -90,11 +126,25 @@ export async function grantVerificationAction(listingId: string) {
     entityId: listingId,
   });
 
+  // Send notification (fire-and-forget)
+  if (listing?.ownerId) {
+    sendNotification(listing.ownerId, "VERIFICATION_GRANTED", {
+      listingName: listing.nameAr,
+      listingId,
+    }).catch(console.error);
+  }
+
   revalidatePath("/[locale]/admin/listings");
 }
 
 export async function revokeVerificationAction(listingId: string) {
   const session = await requireAdmin();
+
+  // Get listing info for notification
+  const listing = await prisma.businessProfile.findUnique({
+    where: { id: listingId },
+    select: { nameAr: true, ownerId: true, categoryId: true },
+  });
 
   await prisma.businessProfile.update({
     where: { id: listingId },
@@ -109,6 +159,14 @@ export async function revokeVerificationAction(listingId: string) {
     entityType: "BusinessProfile",
     entityId: listingId,
   });
+
+  // Send notification (fire-and-forget)
+  if (listing?.ownerId) {
+    sendNotification(listing.ownerId, "VERIFICATION_REVOKED", {
+      listingName: listing.nameAr,
+      listingId,
+    }).catch(console.error);
+  }
 
   revalidatePath("/[locale]/admin/listings");
 }

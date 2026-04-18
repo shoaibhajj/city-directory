@@ -9,8 +9,13 @@ import { verifyPassword } from "@/features/auth/utils";
 import { SignInSchema } from "@/features/auth/schemas";
 import type { Role } from "@prisma/client";
 
+// PrismaAdapter type issue: @auth/prisma-adapter exports different Adapter version
+// than next-auth expects. Works at runtime but TS complains. Cast to fix.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const prismaAdapter = PrismaAdapter(prisma) as any;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma), // kept for Google OAuth account storage
+  adapter: prismaAdapter, // kept for Google OAuth account storage
 
   // WHY jwt and not database:
   // Auth.js v5 beta does not call adapter.createSession() for Credentials provider.
