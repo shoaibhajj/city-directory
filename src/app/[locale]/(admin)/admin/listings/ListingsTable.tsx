@@ -27,20 +27,7 @@ interface Listing {
 
 interface Props {
   locale: string;
-  listings: {
-    id: string;
-    nameAr: string;
-    nameEn: string | null;
-    slug: string;
-    status: unknown;
-    views: unknown;
-    createdAt: Date;
-    updatedAt: Date;
-    deletedAt: Date | null;
-    verifiedAt: Date | null;
-    category: { nameAr: string; nameEn: string };
-    owner: { email: string; name: string | null };
-  }[];
+  listings: Listing[];
   totalPages: number;
   currentPage: number;
 }
