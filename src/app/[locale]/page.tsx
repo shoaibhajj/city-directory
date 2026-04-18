@@ -52,7 +52,7 @@ export default async function HomePage({
             {categories.map((category) => (
               <Link
                 key={category.id}
-                href={`/${locale}/al-nabik/${category.slug}`}
+                href={`al-nabik/${category.slug}`}
                 className="block p-6 bg-card rounded-lg shadow-sm hover:shadow-md transition-shadow text-center"
               >
                 <div className="text-3xl mb-2">{category.icon || "📁"}</div>
@@ -81,7 +81,7 @@ export default async function HomePage({
               {featuredListings.map((listing) => (
                 <Link
                   key={listing.id}
-                  href={`/${locale}/al-nabik/${listing.category.slug}/${listing.slug}`}
+                  href={`al-nabik/${listing.category.slug}/${listing.slug}`}
                   className="block bg-card rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden"
                 >
                   <div className="h-40 bg-gray-200 dark:bg-gray-800 relative">

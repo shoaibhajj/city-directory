@@ -57,7 +57,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       {hasSubcategories && (
         <div className="mb-6 flex flex-wrap gap-2">
           <Link
-            href={`/${locale}/${citySlug}/${categorySlug}`}
+            href={`${citySlug}/${categorySlug}`}
             className="px-4 py-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
           >
             {t("allSubcategories")}
@@ -65,7 +65,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           {category.subcategories.map((sub) => (
             <Link
               key={sub.id}
-              href={`/${locale}/${citySlug}/${categorySlug}?subcategory=${sub.slug}`}
+              href={`${citySlug}/${categorySlug}?subcategory=${sub.slug}`}
               className="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-primary/20 transition-colors"
             >
               {locale === "ar" ? sub.nameAr : sub.nameEn}
@@ -84,7 +84,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           {listings.map((listing) => (
             <Link
               key={listing.id}
-              href={`/${locale}/${citySlug}/${categorySlug}/${listing.slug}`}
+              href={`${citySlug}/${categorySlug}/${listing.slug}`}
               className="block bg-white dark:bg-gray-900 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden"
             >
               {/* Image or placeholder */}
