@@ -41,7 +41,6 @@ export function ListingsTable({ locale, listings, totalPages, currentPage }: Pro
             <th className="text-left p-3">Category</th>
             <th className="text-left p-3">Owner</th>
             <th className="text-left p-3">Status</th>
-            <th className="text-left p-3">Views</th>
             <th className="text-left p-3">Verified</th>
             <th className="text-left p-3">Actions</th>
           </tr>
@@ -129,7 +128,6 @@ function ListingRow({ locale, listing }: { locale: string; listing: Listing }) {
           {listing.status}
         </span>
       </td>
-      <td className="p-3">{listing.views}</td>
       <td className="p-3">{listing.verifiedAt ? "✓" : "—"}</td>
       <td className="p-3">
         <div className="flex gap-2">
