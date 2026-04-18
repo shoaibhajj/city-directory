@@ -3,13 +3,39 @@
 
 import { notFound } from "next/navigation";
 import Image from "next/image";
+import { getAllCategories } from "@/features/categories/queries";
 import { getCategoryBySlug } from "@/features/categories/queries";
 import { getPublicListings } from "@/features/business/queries";
 import { Link } from "@/i18n/navigation";
 import { getTranslations } from "next-intl/server";
 
-export const dynamic = "force-static";
-export const dynamicParams = false;
+// ─── generateStaticParams ─────────────────────────────────────────────────────
+export const dynamicParams = true;
+
+export async function generateStaticParams() {
+  try {
+    const categories = await getAllCategories();
+    
+    return categories.flatMap((category) => [
+      {
+        locale: "ar",
+        citySlug: "al-nabik",
+        categorySlug: category.slug,
+      },
+      {
+        locale: "en",
+        citySlug: "al-nabik",
+        categorySlug: category.slug,
+      },
+    ]);
+  } catch (error) {
+    console.warn(
+      "generateStaticParams: DB unreachable at build time, pages will render on first request via ISR:",
+      error,
+    );
+    return [];
+  }
+}
 
 interface CategoryPageProps {
   params: Promise<{
@@ -57,7 +83,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
       {hasSubcategories && (
         <div className="mb-6 flex flex-wrap gap-2">
           <Link
-            href={`${citySlug}/${categorySlug}`}
+            href={`/${locale}/${citySlug}/${categorySlug}`}
             className="px-4 py-2 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors"
           >
             {t("allSubcategories")}
@@ -65,7 +91,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           {category.subcategories.map((sub) => (
             <Link
               key={sub.id}
-              href={`${citySlug}/${categorySlug}?subcategory=${sub.slug}`}
+              href={`/${locale}/${citySlug}/${categorySlug}?subcategory=${sub.slug}`}
               className="px-4 py-2 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-primary/20 transition-colors"
             >
               {locale === "ar" ? sub.nameAr : sub.nameEn}
@@ -84,7 +110,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           {listings.map((listing) => (
             <Link
               key={listing.id}
-              href={`${citySlug}/${categorySlug}/${listing.slug}`}
+              href={`/${locale}/${citySlug}/${categorySlug}/${listing.slug}`}
               className="block bg-white dark:bg-gray-900 rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden"
             >
               {/* Image or placeholder */}
