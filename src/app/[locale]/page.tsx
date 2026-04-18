@@ -8,8 +8,15 @@ import { getTranslations } from "next-intl/server";
 import { SearchBar } from "@/components/shared/search-bar";
 import { Link } from "@/i18n/navigation";
 
-export const dynamic = "force-static";
+// ─── generateStaticParams ─────────────────────────────────────────────────────
 export const dynamicParams = false;
+
+export async function generateStaticParams() {
+  return [
+    { locale: "ar" },
+    { locale: "en" },
+  ];
+}
 
 export default async function HomePage({
   params,
