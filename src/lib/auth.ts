@@ -10,7 +10,6 @@ import { SignInSchema } from "@/features/auth/schemas";
 import type { Role } from "@prisma/client";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // @ts-expect-error - Type mismatch between @auth/prisma-adapter and next-auth versions (pre-existing)
   adapter: PrismaAdapter(prisma), // kept for Google OAuth account storage
 
   // WHY jwt and not database:
