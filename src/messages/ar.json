@@ -140,5 +140,55 @@
     "allSubcategories": "كل التصنيفات الفرعية",
     "noListings": "لا توجد نشاطات تجارية في هذا التصنيف",
     "filterBySubcategory": "تصفية حسب التصنيف الفرعي"
+  },
+  "admin": {
+    "dashboard": {
+      "title": "لوحة التحكم",
+      "activeListings": "نشاطات نشطة",
+      "draftListings": "مسودات",
+      "suspendedListings": "معلقة",
+      "newUsers": "مستخدمين جدد",
+      "pendingReviews": "مراجعات معلقة",
+      "unresolvedFlags": "إشارات مفتوحة",
+      "manageListings": "إدارة النشاطات",
+      "manageListingsDesc": "عرض وتعديل وحذف النشاطات",
+      "manageUsers": "إدارة المستخدمين",
+      "manageUsersDesc": "إضافة وتعديل وإلغاء",
+      "reviewFlags": "مراجعة الإشارات",
+      "reviewFlagsDesc": "مراجعة الإشارات المبلغ عنها",
+      "listingsPerCategory": "النشاطات لكل تصنيف"
+    },
+    "listings": {
+      "title": "إدارة النشاطات",
+      "searchPlaceholder": "بحث...",
+      "allStatuses": "الكل",
+      "active": "نشط",
+      "draft": "مسودة",
+      "suspended": "معلق",
+      "filter": "تصفية",
+      "search": "بحث"
+    },
+    "users": {
+      "title": "إدارة المستخدمين",
+      "searchPlaceholder": "بحث..."
+    },
+    "flags": {
+      "title": "قائمة الإشارات",
+      "pending": "معلق",
+      "resolved": "محلول",
+      "all": "الكل"
+    },
+    "auditLog": {
+      "title": "سجل المراجعة",
+      "allEntities": "الكل",
+      "timestamp": "الوقت",
+      "actor": "المستخدم",
+      "action": "الإجراء",
+      "entity": "الكيان",
+      "filter": "تصفية"
+    },
+    "settings": {
+      "title": "إعدادات المنصة"
+    }
   }
 }

@@ -140,5 +140,55 @@
     "allSubcategories": "All Subcategories",
     "noListings": "No businesses in this category",
     "filterBySubcategory": "Filter by subcategory"
+  },
+  "admin": {
+    "dashboard": {
+      "title": "Admin Dashboard",
+      "activeListings": "Active Listings",
+      "draftListings": "Draft",
+      "suspendedListings": "Suspended",
+      "newUsers": "New Users",
+      "pendingReviews": "Pending Reviews",
+      "unresolvedFlags": "Open Flags",
+      "manageListings": "Manage Listings",
+      "manageListingsDesc": "View, edit and remove listings",
+      "manageUsers": "Manage Users",
+      "manageUsersDesc": "Add, edit and remove users",
+      "reviewFlags": "Review Flags",
+      "reviewFlagsDesc": "Review reported content",
+      "listingsPerCategory": "Listings Per Category"
+    },
+    "listings": {
+      "title": "Manage Listings",
+      "searchPlaceholder": "Search...",
+      "allStatuses": "All",
+      "active": "Active",
+      "draft": "Draft",
+      "suspended": "Suspended",
+      "filter": "Filter",
+      "search": "Search"
+    },
+    "users": {
+      "title": "Manage Users",
+      "searchPlaceholder": "Search..."
+    },
+    "flags": {
+      "title": "Flag Queue",
+      "pending": "Pending",
+      "resolved": "Resolved",
+      "all": "All"
+    },
+    "auditLog": {
+      "title": "Audit Log",
+      "allEntities": "All",
+      "timestamp": "Time",
+      "actor": "Actor",
+      "action": "Action",
+      "entity": "Entity",
+      "filter": "Filter"
+    },
+    "settings": {
+      "title": "Platform Settings"
+    }
   }
 }

@@ -130,6 +130,8 @@ model User {
   passwordHash  String?
   role          Role      @default(BUSINESS_OWNER)
   image         String?
+  bannedAt     DateTime?
+  bannedReason String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
