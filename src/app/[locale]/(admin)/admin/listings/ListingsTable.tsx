@@ -16,7 +16,6 @@ interface Listing {
   nameEn: string | null;
   slug: string;
   status: string;
-  views: number;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
