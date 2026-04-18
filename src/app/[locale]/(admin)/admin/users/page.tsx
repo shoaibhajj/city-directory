@@ -37,7 +37,7 @@ export default async function AdminUsersPage({
         name: true,
         email: true,
         role: true,
-        bannedReason: true,
+        bannedAt: true,
         createdAt: true,
         _count: { select: { ownedListings: true } },
       },

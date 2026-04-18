@@ -11,7 +11,7 @@ interface User {
   name: string | null;
   email: string;
   role: Role;
-  bannedReason: string | null;
+  bannedAt: Date | null;
   createdAt: Date;
   _count: { ownedListings: number };
 }
@@ -117,7 +117,7 @@ function UserRow({ locale: _locale, user }: { locale: string; user: User }) {
         {new Date(user.createdAt).toLocaleDateString()}
       </td>
       <td className="p-3">
-        {user.bannedReason ? (
+        {user.bannedAt ? (
           <span className="text-red-600 text-xs">Banned</span>
         ) : (
           <span className="text-green-600 text-xs">Active</span>
@@ -125,7 +125,7 @@ function UserRow({ locale: _locale, user }: { locale: string; user: User }) {
       </td>
       <td className="p-3">
         <div className="flex gap-2">
-          {user.bannedReason ? (
+          {user.bannedAt ? (
             <button
               onClick={handleUnban}
               disabled={pending}
