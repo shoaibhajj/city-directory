@@ -92,17 +92,19 @@ export function SearchBar() {
 
 ## Issues & Solutions
 
-### Issue 1: Double Locale Prefix in Links
-**Symptom:** Links showing `/ar/ar/al-nabik/...` instead of `/ar/al-nabik/...`
+### Issue 1: Double Locale Prefix in Links (MISUNDERSTOOD)
+**Initial Misunderstanding:** Thought we needed to add `/${locale}` manually to links
 
-**Initial Code (WRONG):**
+**Correct Solution:** next-intl Link automatically adds the locale prefix. DO NOT add `/${locale}` manually!
+
+**Correct Code:**
 ```tsx
-href={`al-nabik/${category.slug}`}  // Missing locale!
+href={`al-nabik/${category.slug}`}  // next-intl adds /ar or /en automatically
 ```
 
-**Solution:**
+**What NOT to do:**
 ```tsx
-href={`/${locale}/al-nabik/${category.slug}`}
+href={`/${locale}/al-nabik/${category.slug}`}  // WRONG! Creates /ar/ar/...
 ```
 
 **Files Fixed:**

@@ -6,11 +6,10 @@
 import { useState, useTransition } from "react";
 import { searchListingsAction } from "@/features/business/actions";
 import { Link } from "@/i18n/navigation";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 export function SearchBar() {
   const t = useTranslations("search");
-  const locale = useLocale();
   const [query, setQuery] = useState("");
   const [isPending, startTransition] = useTransition();
   const [results, setResults] = useState<unknown[]>([]);
@@ -84,7 +83,7 @@ export function SearchBar() {
                 return (
                   <Link
                     key={l.id}
-                    href={`/${locale}/al-nabik/${l.category.slug}/${l.slug}`}
+                    href={`al-nabik/${l.category.slug}/${l.slug}`}
                     onClick={() => setIsOpen(false)}
                     className="block p-4 hover:bg-muted transition-colors border-b last:border-b-0"
                   >
